@@ -543,13 +543,13 @@ struct SettingsPane: View {
                         }
                     }
 
-                    if model.updateState == .ready || (model.updateState == .loading && !model.updateProgress.isEmpty) {
+                    if !model.latestVersion.isEmpty {
                         HStack(spacing: 12) {
                             Text("New version \(model.latestVersion) available")
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(.orange)
 
-                            if model.updateState != .loading {
+                            if model.updateState == .ready {
                                 Button {
                                     Task { await model.performUpdate() }
                                 } label: {
@@ -561,9 +561,15 @@ struct SettingsPane: View {
 
                         if !model.updateProgress.isEmpty {
                             VStack(alignment: .leading, spacing: 6) {
-                                Text(model.updateProgress)
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.secondary)
+                                HStack(spacing: 8) {
+                                    if model.updateState == .loading {
+                                        ProgressView()
+                                            .controlSize(.small)
+                                    }
+                                    Text(model.updateProgress)
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.secondary)
+                                }
                                 if model.updateDownloadPercent > 0 && model.updateDownloadPercent < 1 {
                                     ProgressView(value: model.updateDownloadPercent, total: 1.0)
                                         .tint(.accentColor)
