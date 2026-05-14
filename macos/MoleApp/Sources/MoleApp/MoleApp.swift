@@ -10,7 +10,12 @@ struct MoleDesktopApp: App {
                 .environmentObject(model)
                 .frame(minWidth: 980, minHeight: 680)
                 .task {
-                    await model.refreshDashboard()
+                    model.checkFullDiskAccess()
+                    if !model.hasFullDiskAccess {
+                        model.requestAdmin()
+                    } else {
+                        await model.refreshDashboard()
+                    }
                 }
         }
         .windowStyle(.hiddenTitleBar)

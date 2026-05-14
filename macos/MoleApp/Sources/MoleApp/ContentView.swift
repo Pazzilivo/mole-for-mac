@@ -70,78 +70,315 @@ struct ContentView: View {
     }
 }
 
+// MARK: - Overview
+
 struct OverviewPane: View {
     @EnvironmentObject private var model: MoleAppModel
     @Binding var selection: AppSection?
 
     var body: some View {
-        Workspace(title: "Overview", subtitle: "System health and the next maintenance actions.") {
-            if !model.hasFullDiskAccess {
-                FullDiskAccessBanner()
-            }
+        Workspace(title: "Overview", subtitle: "System health at a glance.") {
+            VStack(spacing: 20) {
+                if !model.hasFullDiskAccess {
+                    FullDiskAccessBanner()
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
 
-            if case let .failed(message) = model.statusState {
-                ErrorBanner(message: message)
-            }
+                if case let .failed(message) = model.statusState {
+                    ErrorBanner(message: message)
+                }
 
-            QuickActions(selection: $selection)
+                QuickActions(selection: $selection)
+            }
 
             if let status = model.status {
-                VStack(alignment: .leading, spacing: 28) {
-                    HStack(alignment: .top, spacing: 36) {
-                        HealthBlock(status: status)
-                        MetricStack(status: status)
-                    }
-
-                    Divider()
-
+                VStack(spacing: 24) {
+                    HealthDashboard(status: status)
                     DiskList(disks: status.disks ?? [])
-
-                    Divider()
-
                     ProcessList(processes: status.topProcesses ?? [])
                 }
+                .transition(.opacity)
             } else if model.statusState == .loading {
-                LoadingView(title: "Collecting metrics")
+                LoadingView(title: "Collecting system metrics...")
             } else {
-                EmptyState(title: "No status yet", detail: "Refresh to load CPU, memory, disk, and process data.")
+                EmptyState(
+                    icon: "gauge.with.dots.needle.67percent",
+                    title: "No status data",
+                    detail: "Click the refresh button or press ⌘R to load system metrics."
+                )
             }
         }
     }
 }
+
+// MARK: - Quick Actions
 
 struct QuickActions: View {
     @Binding var selection: AppSection?
 
     var body: some View {
         HStack(spacing: 10) {
-            Button {
+            ActionPill(title: "Scan Cleanup", icon: "sparkles", isPrimary: true) {
                 selection = .clean
-            } label: {
-                Label("Scan Cleanup", systemImage: "sparkles")
             }
-            .buttonStyle(.borderedProminent)
-
-            Button {
+            ActionPill(title: "Analyze Disk", icon: "externaldrive", isPrimary: false) {
                 selection = .analyze
-            } label: {
-                Label("Analyze Disk", systemImage: "externaldrive")
             }
-
-            Button {
+            ActionPill(title: "Review Apps", icon: "trash", isPrimary: false) {
                 selection = .uninstall
-            } label: {
-                Label("Review Apps", systemImage: "trash")
             }
-
-            Button {
+            ActionPill(title: "Optimize", icon: "wrench.and.screwdriver", isPrimary: false) {
                 selection = .optimize
-            } label: {
-                Label("Optimize", systemImage: "wrench.and.screwdriver")
             }
         }
     }
 }
+
+struct ActionPill: View {
+    let title: String
+    let icon: String
+    let isPrimary: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Label(title, systemImage: icon)
+                .font(.system(size: 13, weight: .medium))
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(isPrimary ? .accentColor : .clear)
+        .foregroundStyle(isPrimary ? .white : .primary)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+    }
+}
+
+// MARK: - Health Dashboard
+
+struct HealthDashboard: View {
+    let status: StatusSnapshot
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 20) {
+            HealthScoreCard(status: status)
+            MetricCards(status: status)
+        }
+    }
+}
+
+struct HealthScoreCard: View {
+    let status: StatusSnapshot
+    private let score = 72
+
+    var scoreColor: Color {
+        let s = status.healthScore ?? 0
+        if s >= 80 { return .green }
+        if s >= 60 { return .orange }
+        return .red
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .stroke(Color(nsColor: .controlBackgroundColor), lineWidth: 6)
+                Circle()
+                    .trim(from: 0, to: Double(status.healthScore ?? 0) / 100.0)
+                    .stroke(scoreColor, style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .animation(.easeOut(duration: 0.8), value: status.healthScore)
+                Text("\(status.healthScore ?? 0)")
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .contentTransition(.numericText())
+            }
+            .frame(width: 100, height: 100)
+
+            VStack(spacing: 4) {
+                Text(status.healthScoreMsg ?? "System Health")
+                    .font(.system(size: 13, weight: .semibold))
+                Text(status.hardware?.model ?? status.host ?? "This Mac")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                if let os = status.hardware?.osVersion {
+                    Text(os)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(20)
+        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 10))
+    }
+}
+
+struct MetricCards: View {
+    let status: StatusSnapshot
+
+    var body: some View {
+        VStack(spacing: 10) {
+            MetricCardRow(
+                icon: "cpu",
+                title: "CPU",
+                value: status.cpu?.usage.map { "\(Int($0.rounded()))%" } ?? "--",
+                detail: loadText,
+                progress: status.cpu?.usage ?? 0,
+                color: .blue
+            )
+            MetricCardRow(
+                icon: "memorychip",
+                title: "Memory",
+                value: status.memory?.usedPercent.map { "\(Int($0.rounded()))%" } ?? "--",
+                detail: memoryText,
+                progress: status.memory?.usedPercent ?? 0,
+                color: .orange
+            )
+            if let disk = status.disks?.first {
+                MetricCardRow(
+                    icon: "internaldrive",
+                    title: "Disk",
+                    value: disk.usedPercent.map { "\(Int($0.rounded()))%" } ?? "--",
+                    detail: "\(ByteFormat.string(disk.used)) of \(ByteFormat.string(disk.total))",
+                    progress: disk.usedPercent ?? 0,
+                    color: .purple
+                )
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var loadText: String {
+        guard let cpu = status.cpu else { return "Unknown load" }
+        return "Load \(format(cpu.load1)) / \(format(cpu.load5)) / \(format(cpu.load15))"
+    }
+
+    private var memoryText: String {
+        "\(ByteFormat.string(status.memory?.used)) of \(ByteFormat.string(status.memory?.total))"
+    }
+}
+
+struct MetricCardRow: View {
+    let icon: String
+    let title: String
+    let value: String
+    let detail: String
+    let progress: Double
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 16))
+                .foregroundStyle(color)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text(title)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text(value)
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                }
+                ProgressView(value: min(max(progress, 0), 100), total: 100)
+                    .tint(color)
+                    .animation(.easeOut(duration: 0.6), value: progress)
+                Text(detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(12)
+        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+// MARK: - Disk & Process Lists
+
+struct DiskList: View {
+    let disks: [DiskInfo]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeader(title: "Disks", icon: "internaldrive")
+
+            ForEach(disks.prefix(5)) { disk in
+                HStack(spacing: 12) {
+                    Image(systemName: disk.external == true ? "externaldrive" : "internaldrive")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(disk.mount ?? disk.device ?? "Disk")
+                            .font(.system(size: 13, weight: .medium))
+                        Text(disk.external == true ? "External" : "Internal")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                    Text("\(ByteFormat.string(disk.used)) / \(ByteFormat.string(disk.total))")
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+    }
+}
+
+struct ProcessList: View {
+    let processes: [TopProcess]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            SectionHeader(title: "Top Processes", icon: "chart.bar")
+
+            ForEach(processes.prefix(6)) { process in
+                HStack(spacing: 12) {
+                    Text(process.name ?? process.command ?? "Process")
+                        .font(.system(size: 13))
+                        .lineLimit(1)
+                    Spacer()
+                    Text("\(format(process.cpu))%")
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundStyle(cpuColor(process.cpu))
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 8))
+            }
+        }
+    }
+
+    private func cpuColor(_ value: Double?) -> Color {
+        guard let v = value else { return .secondary }
+        if v > 50 { return .red }
+        if v > 25 { return .orange }
+        return .secondary
+    }
+}
+
+struct SectionHeader: View {
+    let title: String
+    let icon: String
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.secondary)
+        }
+        .textCase(.uppercase)
+    }
+}
+
+// MARK: - Analyze
 
 struct AnalyzePane: View {
     @EnvironmentObject private var model: MoleAppModel
@@ -155,10 +392,20 @@ struct AnalyzePane: View {
                     Label("Analyze Home", systemImage: "magnifyingglass")
                 }
                 .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+                .disabled(model.analyzeState == .loading)
 
                 if model.analyzeState == .loading {
-                    ProgressView()
-                        .controlSize(.small)
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(model.analyzeProgress.isEmpty ? "Starting analysis..." : model.analyzeProgress)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                            .animation(.easeInOut(duration: 0.3), value: model.analyzeProgress)
+                    }
                 }
             }
 
@@ -169,7 +416,7 @@ struct AnalyzePane: View {
             if let analysis = model.analysis {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(analysis.path)
-                        .font(.callout)
+                        .font(.system(size: 12))
                         .foregroundStyle(.secondary)
 
                     MetricStrip(items: [
@@ -189,12 +436,19 @@ struct AnalyzePane: View {
                     }
                     .frame(minHeight: 360)
                 }
+                .transition(.opacity)
             } else if model.analyzeState == .idle {
-                EmptyState(title: "Ready to scan", detail: "The first pass uses `mo analyze --json` against your home folder.")
+                EmptyState(
+                    icon: "magnifyingglass",
+                    title: "Ready to scan",
+                    detail: "Click Analyze Home to scan your home folder disk usage."
+                )
             }
         }
     }
 }
+
+// MARK: - Uninstall
 
 struct UninstallPane: View {
     @EnvironmentObject private var model: MoleAppModel
@@ -209,17 +463,18 @@ struct UninstallPane: View {
     }
 
     var body: some View {
-        Workspace(title: "Uninstall", subtitle: "List installed apps and prepare preview-first removal flows.") {
+        Workspace(title: "Uninstall", subtitle: "List installed apps and prepare removal flows.") {
             HStack {
-                TextField("Search apps", text: $query)
+                TextField("Search apps...", text: $query)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 320)
 
                 Button {
                     Task { await model.refreshApps() }
                 } label: {
-                    Label("Rescan", systemImage: "arrow.clockwise")
+                    Image(systemName: "arrow.clockwise")
                 }
+                .help("Rescan")
             }
 
             if case let .failed(message) = model.appsState {
@@ -241,12 +496,14 @@ struct UninstallPane: View {
             }
             .frame(minHeight: 440)
 
-            Text("Destructive uninstall actions are intentionally held back until JSON preview and apply commands are added.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            Text("Destructive uninstall actions are held back until JSON preview and apply commands are added.")
+                .font(.system(size: 12))
+                .foregroundStyle(.tertiary)
         }
     }
 }
+
+// MARK: - Settings
 
 struct SettingsPane: View {
     @EnvironmentObject private var model: MoleAppModel
@@ -258,19 +515,21 @@ struct SettingsPane: View {
                     Text(model.runtime.root.path)
                         .textSelection(.enabled)
                         .foregroundStyle(.secondary)
+                        .font(.system(size: 12, design: .monospaced))
                 }
 
                 VStack(alignment: .leading, spacing: 10) {
-                    Text("Runtime checks")
-                        .font(.headline)
+                    SectionHeader(title: "Runtime Checks", icon: "checklist")
                     ForEach(model.runtime.runtimeChecks()) { check in
-                        HStack(alignment: .firstTextBaseline) {
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Image(systemName: check.isAvailable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                                 .foregroundStyle(check.isAvailable ? .green : .orange)
+                                .font(.system(size: 14))
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(check.title)
+                                    .font(.system(size: 13, weight: .medium))
                                 Text(check.detail)
-                                    .font(.caption)
+                                    .font(.system(size: 11))
                                     .foregroundStyle(.secondary)
                                     .textSelection(.enabled)
                             }
@@ -286,9 +545,9 @@ struct SettingsPane: View {
                     Label("Install `mo` in ~/.local/bin", systemImage: "terminal")
                 }
 
-                Text("The app always uses its bundled runtime. Installing `mo` only adds optional terminal access for this user.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                Text("The app always uses its bundled runtime. Installing `mo` only adds optional terminal access.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.tertiary)
 
                 Divider()
 
@@ -298,6 +557,8 @@ struct SettingsPane: View {
     }
 }
 
+// MARK: - Shared Components
+
 struct Workspace<Content: View>: View {
     let title: String
     let subtitle: String
@@ -305,140 +566,21 @@ struct Workspace<Content: View>: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .font(.system(size: 34, weight: .semibold))
+                        .font(.system(size: 26, weight: .bold))
                     Text(subtitle)
-                        .font(.callout)
+                        .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                 }
 
                 content
             }
-            .padding(32)
+            .padding(24)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Color(nsColor: .windowBackgroundColor))
-    }
-}
-
-struct HealthBlock: View {
-    let status: StatusSnapshot
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Health")
-                .font(.headline)
-            Text("\(status.healthScore ?? 0)")
-                .font(.system(size: 72, weight: .semibold, design: .rounded))
-                .contentTransition(.numericText())
-            Text(status.healthScoreMsg ?? "System health")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-            Text(status.hardware?.model ?? status.host ?? "This Mac")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-        }
-        .frame(width: 220, alignment: .leading)
-    }
-}
-
-struct MetricStack: View {
-    let status: StatusSnapshot
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            MeterRow(title: "CPU", value: status.cpu?.usage, detail: loadText)
-            MeterRow(title: "Memory", value: status.memory?.usedPercent, detail: memoryText)
-            if let disk = status.disks?.first {
-                MeterRow(title: "Disk", value: disk.usedPercent, detail: "\(ByteFormat.string(disk.used)) used of \(ByteFormat.string(disk.total))")
-            }
-        }
-        .frame(maxWidth: 520)
-    }
-
-    private var loadText: String {
-        guard let cpu = status.cpu else { return "Unknown load" }
-        return "Load \(format(cpu.load1)) / \(format(cpu.load5)) / \(format(cpu.load15))"
-    }
-
-    private var memoryText: String {
-        "\(ByteFormat.string(status.memory?.used)) used of \(ByteFormat.string(status.memory?.total))"
-    }
-}
-
-struct MeterRow: View {
-    let title: String
-    let value: Double?
-    let detail: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            HStack {
-                Text(title)
-                    .font(.headline)
-                Spacer()
-                Text(value.map { "\(Int($0.rounded()))%" } ?? "Unknown")
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            }
-            ProgressView(value: clamped(value), total: 100)
-            Text(detail)
-                .font(.callout)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private func clamped(_ value: Double?) -> Double {
-        min(max(value ?? 0, 0), 100)
-    }
-}
-
-struct DiskList: View {
-    let disks: [DiskInfo]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Disks")
-                .font(.headline)
-
-            ForEach(disks.prefix(5)) { disk in
-                HStack {
-                    VStack(alignment: .leading) {
-                        Text(disk.mount ?? disk.device ?? "Disk")
-                        Text(disk.external == true ? "External" : "Internal")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Text("\(ByteFormat.string(disk.used)) / \(ByteFormat.string(disk.total))")
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-    }
-}
-
-struct ProcessList: View {
-    let processes: [TopProcess]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Top Processes")
-                .font(.headline)
-
-            ForEach(processes.prefix(6)) { process in
-                HStack {
-                    Text(process.name ?? process.command ?? "Process")
-                    Spacer()
-                    Text("\(format(process.cpu))% CPU")
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
     }
 }
 
@@ -450,13 +592,17 @@ struct MetricStrip: View {
             ForEach(items, id: \.0) { item in
                 VStack(alignment: .leading, spacing: 4) {
                     Text(item.0)
-                        .font(.caption)
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(.secondary)
+                        .textCase(.uppercase)
                     Text(item.1)
-                        .font(.title3.monospacedDigit())
+                        .font(.system(size: 18, weight: .semibold, design: .rounded))
                 }
             }
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -465,15 +611,19 @@ struct ActivityList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Recent activity")
-                .font(.headline)
+            SectionHeader(title: "Recent Activity", icon: "clock")
             ForEach(lines) { line in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(line.title)
-                        .foregroundStyle(line.isError ? .red : .primary)
-                    Text(line.detail)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Image(systemName: line.isError ? "xmark.circle.fill" : "checkmark.circle.fill")
+                        .foregroundStyle(line.isError ? .red : .green)
+                        .font(.system(size: 12))
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(line.title)
+                            .font(.system(size: 13, weight: .medium))
+                        Text(line.detail)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }
@@ -484,42 +634,66 @@ struct ErrorBanner: View {
     let message: String
 
     var body: some View {
-        Label(message, systemImage: "exclamationmark.triangle")
-            .font(.callout)
-            .foregroundStyle(.red)
-            .textSelection(.enabled)
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(.red)
+            Text(message)
+                .font(.system(size: 13))
+                .foregroundStyle(.red)
+                .textSelection(.enabled)
+            Spacer()
+        }
+        .padding(12)
+        .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
 struct FullDiskAccessBanner: View {
+    @EnvironmentObject private var model: MoleAppModel
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label("Full Disk Access Required", systemImage: "lock.shield")
-                .font(.headline)
-
-            Text("Mole needs Full Disk Access to scan system caches, app data, and disk usage. Without it, you may see repeated permission prompts or missing data.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-
-            VStack(alignment: .leading, spacing: 6) {
-                Text("How to grant access:")
-                    .font(.callout.weight(.medium))
-                Text("1. Open System Settings > Privacy & Security > Full Disk Access")
-                Text("2. Click the + button and add Mole.app")
-                Text("3. Restart Mole")
+            HStack(spacing: 8) {
+                Image(systemName: model.isAdmin ? "checkmark.shield.fill" : "lock.shield")
+                    .font(.system(size: 16))
+                    .foregroundStyle(model.isAdmin ? .green : .orange)
+                Text(model.isAdmin ? "Admin Access Granted" : "Admin Access Required")
+                    .font(.system(size: 14, weight: .semibold))
             }
-            .font(.callout)
-            .foregroundStyle(.secondary)
 
-            Button {
-                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
-            } label: {
-                Label("Open System Settings", systemImage: "gear")
+            if model.isAdmin {
+                Text("Mole is running with administrator privileges. All features are available.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("Mole needs admin access to scan system caches, app data, and disk usage without repeated permission prompts.")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+
+                HStack(spacing: 12) {
+                    Button {
+                        model.requestAdmin()
+                    } label: {
+                        Label("Authenticate as Admin", systemImage: "lock.open")
+                            .font(.system(size: 13, weight: .medium))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
+
+                    Button {
+                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
+                    } label: {
+                        Label("Or Grant Full Disk Access", systemImage: "gear")
+                            .font(.system(size: 12))
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
             }
-            .buttonStyle(.borderedProminent)
         }
         .padding(16)
-        .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 10))
+        .background(model.isAdmin ? Color.green.opacity(0.06) : Color.orange.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(model.isAdmin ? Color.green.opacity(0.15) : Color.orange.opacity(0.15), lineWidth: 1))
     }
 }
 
@@ -531,23 +705,39 @@ struct LoadingView: View {
             ProgressView()
                 .controlSize(.small)
             Text(title)
+                .font(.system(size: 13))
                 .foregroundStyle(.secondary)
         }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.vertical, 48)
     }
 }
 
 struct EmptyState: View {
+    let icon: String
     let title: String
     let detail: String
 
+    init(icon: String = "tray", title: String, detail: String) {
+        self.icon = icon
+        self.title = title
+        self.detail = detail
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 32, weight: .light))
+                .foregroundStyle(.quaternary)
             Text(title)
-                .font(.headline)
+                .font(.system(size: 15, weight: .semibold))
             Text(detail)
+                .font(.system(size: 13))
                 .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
         }
-        .padding(.vertical, 32)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 48)
     }
 }
 

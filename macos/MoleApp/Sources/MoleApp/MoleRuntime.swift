@@ -74,9 +74,9 @@ final class MoleRuntime {
         }
     }
 
-    func runMole(_ arguments: [String], timeout: TimeInterval = 30) async throws -> MoleCommandResult {
+    func runMole(_ arguments: [String], timeout: TimeInterval = 30, sudo: Bool = false) async throws -> MoleCommandResult {
         try checkRuntime()
-        return try await run(executable: moleExecutable, arguments: arguments, timeout: timeout)
+        return try await run(executable: moleExecutable, arguments: arguments, timeout: timeout, sudo: sudo)
     }
 
     func runtimeChecks() -> [RuntimeCheck] {
@@ -104,9 +104,14 @@ final class MoleRuntime {
         ]
     }
 
-    private func run(executable: URL, arguments: [String], timeout: TimeInterval) async throws -> MoleCommandResult {
-        guard FileManager.default.isExecutableFile(atPath: executable.path) else {
-            throw MoleRuntimeError.missingExecutable(executable)
+    private func run(executable: URL, arguments: [String], timeout: TimeInterval, sudo: Bool = false) async throws -> MoleCommandResult {
+        return try await runStreamed(executable: executable, arguments: arguments, timeout: timeout, useSudo: sudo)
+    }
+
+    func runStreamed(executable: URL? = nil, arguments: [String], timeout: TimeInterval, useSudo: Bool = false, onOutput: (@Sendable (String) -> Void)? = nil) async throws -> MoleCommandResult {
+        let exec = executable ?? moleExecutable
+        guard FileManager.default.isExecutableFile(atPath: exec.path) else {
+            throw MoleRuntimeError.missingExecutable(exec)
         }
 
         return try await withCheckedThrowingContinuation { continuation in
@@ -117,20 +122,32 @@ final class MoleRuntime {
             let stdoutData = PipeDataBuffer()
             let stderrData = PipeDataBuffer()
 
+            if useSudo {
+                process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
+                process.arguments = [exec.path] + arguments
+            } else {
+                process.executableURL = exec
+                process.arguments = arguments
+            }
+
             stdoutPipe.fileHandleForReading.readabilityHandler = { handle in
                 let chunk = handle.availableData
                 guard !chunk.isEmpty else { return }
                 stdoutData.append(chunk)
+                if let callback = onOutput, let text = String(data: chunk, encoding: .utf8) {
+                    callback(text)
+                }
             }
 
             stderrPipe.fileHandleForReading.readabilityHandler = { handle in
                 let chunk = handle.availableData
                 guard !chunk.isEmpty else { return }
                 stderrData.append(chunk)
+                if let callback = onOutput, let text = String(data: chunk, encoding: .utf8) {
+                    callback(text)
+                }
             }
 
-            process.executableURL = executable
-            process.arguments = arguments
             process.currentDirectoryURL = root
             process.standardOutput = stdoutPipe
             process.standardError = stderrPipe
@@ -243,6 +260,17 @@ final class MoleAppModel: ObservableObject {
     @Published var logsState: LoadState = .idle
 
     @Published var hasFullDiskAccess: Bool = true
+    @Published var isAdmin: Bool = false
+    @Published var analyzeProgress: String = ""
+
+    @Published var cleanState: LoadState = .idle
+    @Published var cleanProgress: String = ""
+    @Published var cleanOutput: String = ""
+    @Published var cleanCategories: [CleanCategory] = []
+
+    private var outputBuffer = ""
+    private var flushTimer: Timer?
+    @Published var cleanTotalSize: String = "--"
 
     @Published var status: StatusSnapshot?
     @Published var apps: [AppEntry] = []
@@ -253,6 +281,36 @@ final class MoleAppModel: ObservableObject {
     @Published var deletionLog: [DeletionLogEntry] = []
 
     let runtime = MoleRuntime()
+    private var useSudo: Bool { isAdmin }
+
+    private func startFlushTimer(target: ReferenceWritableKeyPath<MoleAppModel, String>) {
+        flushTimer?.invalidate()
+        flushTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.flushBuffer(to: target)
+            }
+        }
+    }
+
+    private func stopFlushTimer(target: ReferenceWritableKeyPath<MoleAppModel, String>) {
+        flushBuffer(to: target)
+        flushTimer?.invalidate()
+        flushTimer = nil
+    }
+
+    private func flushBuffer(to target: ReferenceWritableKeyPath<MoleAppModel, String>) {
+        guard !outputBuffer.isEmpty else { return }
+        let text = outputBuffer
+        outputBuffer = ""
+        self[keyPath: target] += text
+    }
+
+    private func bufferOutput(_ text: String, progress: ReferenceWritableKeyPath<MoleAppModel, String>) {
+        let line = stripANSI(text).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !line.isEmpty else { return }
+        outputBuffer += line + "\n"
+        self[keyPath: progress] = line
+    }
 
     func refreshDashboard() async {
         checkFullDiskAccess()
@@ -268,10 +326,34 @@ final class MoleAppModel: ObservableObject {
         hasFullDiskAccess = FileManager.default.isReadableFile(atPath: testPath.path)
     }
 
+    func requestAdmin() {
+        let script = NSAppleScript(source: """
+        do shell script "sudo -v" with administrator privileges
+        """)
+        var error: NSDictionary?
+        script?.executeAndReturnError(&error)
+        if error == nil {
+            isAdmin = true
+            checkFullDiskAccess()
+            // Keep sudo session alive
+            startSudoKeeper()
+            Task { await refreshDashboard() }
+        }
+    }
+
+    private func startSudoKeeper() {
+        Timer.scheduledTimer(withTimeInterval: 240, repeats: true) { _ in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
+            process.arguments = ["-v"]
+            try? process.run()
+        }
+    }
+
     func refreshStatus() async {
         statusState = .loading
         do {
-            let result = try await runtime.runMole(["status", "--json"], timeout: 20)
+            let result = try await runtime.runMole(["status", "--json"], timeout: 20, sudo: useSudo)
             let decoder = JSONDecoder()
             let isoFormatter = ISO8601DateFormatter()
             isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -296,7 +378,7 @@ final class MoleAppModel: ObservableObject {
     func refreshApps() async {
         appsState = .loading
         do {
-            let result = try await runtime.runMole(["uninstall", "--list"], timeout: 45)
+            let result = try await runtime.runMole(["uninstall", "--list"], timeout: 45, sudo: useSudo)
             apps = try JSONDecoder().decode([AppEntry].self, from: result.stdout)
             appsState = .ready
             append("Applications scanned", detail: "\(apps.count) apps found.")
@@ -308,22 +390,165 @@ final class MoleAppModel: ObservableObject {
 
     func analyzeHome() async {
         analyzeState = .loading
+        analyzeProgress = ""
+        outputBuffer = ""
+        startFlushTimer(target: \.analyzeProgress)
         do {
             let home = FileManager.default.homeDirectoryForCurrentUser.path
-            let result = try await runtime.runMole(["analyze", "--json", home], timeout: 90)
+            let result = try await runtime.runStreamed(
+                arguments: ["analyze", "--json", home],
+                timeout: 300,
+                useSudo: useSudo,
+                onOutput: { [weak self] text in
+                    Task { @MainActor in
+                        self?.bufferOutput(text, progress: \.analyzeProgress)
+                    }
+                }
+            )
+            stopFlushTimer(target: \.analyzeProgress)
             analysis = try JSONDecoder().decode(AnalyzeOutput.self, from: result.stdout)
             analyzeState = .ready
             append("Home analyzed", detail: "Disk scan finished for \(home).")
         } catch {
+            stopFlushTimer(target: \.analyzeProgress)
             analyzeState = .failed(error.localizedDescription)
             append("Disk analysis failed", detail: error.localizedDescription, isError: true)
+        }
+    }
+
+    func runCleanScan() async {
+        cleanState = .loading
+        cleanProgress = ""
+        cleanOutput = ""
+        cleanCategories = []
+        cleanTotalSize = "--"
+        outputBuffer = ""
+        startFlushTimer(target: \.cleanOutput)
+        do {
+            let result = try await runtime.runStreamed(
+                arguments: ["clean", "--dry-run"],
+                timeout: 600,
+                useSudo: useSudo,
+                onOutput: { [weak self] text in
+                    Task { @MainActor in
+                        self?.bufferOutput(text, progress: \.cleanProgress)
+                    }
+                }
+            )
+            stopFlushTimer(target: \.cleanOutput)
+            let output = String(data: result.stdout, encoding: .utf8) ?? ""
+            cleanOutput += stripANSI(output)
+            parseCleanOutput(cleanOutput)
+            cleanState = .ready
+            append("Clean scan finished", detail: "Found \(cleanCategories.count) categories, \(cleanTotalSize) reclaimable.")
+        } catch {
+            stopFlushTimer(target: \.cleanOutput)
+            cleanState = .failed(error.localizedDescription)
+            append("Clean scan failed", detail: error.localizedDescription, isError: true)
+        }
+    }
+
+    func runCleanApply() async {
+        cleanState = .loading
+        cleanProgress = "Cleaning..."
+        outputBuffer = ""
+        startFlushTimer(target: \.cleanOutput)
+        do {
+            let result = try await runtime.runStreamed(
+                arguments: ["clean"],
+                timeout: 600,
+                useSudo: useSudo,
+                onOutput: { [weak self] text in
+                    Task { @MainActor in
+                        self?.bufferOutput(text, progress: \.cleanProgress)
+                    }
+                }
+            )
+            stopFlushTimer(target: \.cleanOutput)
+            cleanCategories = []
+            cleanTotalSize = "--"
+            cleanState = .idle
+            append("Clean completed", detail: "Cleanup finished successfully.")
+        } catch {
+            stopFlushTimer(target: \.cleanOutput)
+            cleanState = .failed(error.localizedDescription)
+            append("Clean failed", detail: error.localizedDescription, isError: true)
+        }
+    }
+
+    private func parseCleanOutput(_ output: String) {
+        var categories: [CleanCategory] = []
+        for line in output.components(separatedBy: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { continue }
+
+            if trimmed.contains("User app cache") {
+                if let size = extractSize(from: trimmed) {
+                    categories.append(CleanCategory(name: "User App Cache", size: size, detail: extractCount(from: trimmed), icon: "archivebox", color: .blue))
+                }
+            } else if trimmed.contains("User app logs") {
+                if let size = extractSize(from: trimmed) {
+                    categories.append(CleanCategory(name: "User App Logs", size: size, detail: extractCount(from: trimmed), icon: "doc.text", color: .orange))
+                }
+            } else if trimmed.contains("Darwin user temp") {
+                if let size = extractSize(from: trimmed) {
+                    categories.append(CleanCategory(name: "Temp Files", size: size, detail: extractCount(from: trimmed), icon: "clock", color: .purple))
+                }
+            } else if trimmed.contains("Darwin user cache") {
+                if let size = extractSize(from: trimmed) {
+                    categories.append(CleanCategory(name: "System Cache", size: size, detail: extractCount(from: trimmed), icon: "internaldrive", color: .teal))
+                }
+            } else if trimmed.contains("Trash") && trimmed.contains("empty") {
+                categories.append(CleanCategory(name: "Trash", size: "--", detail: "Already empty", icon: "trash", color: .green))
+            } else if trimmed.contains("orphan") || trimmed.contains("Orphan") {
+                if let size = extractSize(from: trimmed) {
+                    categories.append(CleanCategory(name: "Orphan Files", size: size, detail: "", icon: "questionmark.folder", color: .red))
+                }
+            } else if trimmed.contains("Xcode") || trimmed.contains("DerivedData") {
+                if let size = extractSize(from: trimmed) {
+                    categories.append(CleanCategory(name: "Xcode Cache", size: size, detail: "", icon: "hammer", color: .blue))
+                }
+            } else if trimmed.contains("brew") || trimmed.contains("Homebrew") {
+                if let size = extractSize(from: trimmed) {
+                    categories.append(CleanCategory(name: "Homebrew Cache", size: size, detail: "", icon: "mug", color: .orange))
+                }
+            }
+        }
+
+        let totalBytes = categories.compactMap { parseSizeToBytes($0.size) }.reduce(0, +)
+        cleanTotalSize = ByteCountFormatter.string(fromByteCount: Int64(totalBytes), countStyle: .file)
+        cleanCategories = categories
+    }
+
+    private func extractSize(from line: String) -> String? {
+        let pattern = #"(\d+\.?\d*\s*[KMGT]?B)"#
+        guard let range = line.range(of: pattern, options: .regularExpression) else { return nil }
+        return String(line[range])
+    }
+
+    private func extractCount(from line: String) -> String {
+        let pattern = #"(\d+)\s*items?"#
+        guard let range = line.range(of: pattern, options: .regularExpression) else { return "" }
+        return String(line[range])
+    }
+
+    private func parseSizeToBytes(_ size: String) -> Int64 {
+        let parts = size.split(separator: " ")
+        guard parts.count == 2, let value = Double(parts[0]) else { return 0 }
+        let unit = String(parts[1])
+        switch unit {
+        case "KB": return Int64(value * 1024)
+        case "MB": return Int64(value * 1024 * 1024)
+        case "GB": return Int64(value * 1024 * 1024 * 1024)
+        case "TB": return Int64(value * 1024 * 1024 * 1024 * 1024)
+        default: return Int64(value)
         }
     }
 
     func refreshOptimizePlan() async {
         optimizeState = .loading
         do {
-            let result = try await runtime.runMole(["optimize", "--plan-json"], timeout: 20)
+            let result = try await runtime.runMole(["optimize", "--plan-json"], timeout: 20, sudo: useSudo)
             optimizePlan = try JSONDecoder().decode(OptimizePlan.self, from: result.stdout)
             optimizeState = .ready
             append("Optimize plan loaded", detail: "\(optimizePlan?.optimizations.count ?? 0) tasks available.")
@@ -476,4 +701,8 @@ private extension Array {
     subscript(safe index: Int) -> Element? {
         indices.contains(index) ? self[index] : nil
     }
+}
+
+private func stripANSI(_ text: String) -> String {
+    text.replacingOccurrences(of: #"\u{001B}\[[0-9;]*m"#, with: "", options: .regularExpression)
 }

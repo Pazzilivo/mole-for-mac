@@ -1,29 +1,122 @@
 import SwiftUI
 
 struct CleanPane: View {
-    private let plan = PlannedScreen(
-        title: "Clean",
-        subtitle: "Preview reclaimable caches, logs, browser leftovers, and app remnants before deleting.",
-        commands: [
-            PlannedCommand(command: "mole clean --plan-json", purpose: "Return grouped cleanup candidates with size, count, risk, and stable IDs."),
-            PlannedCommand(command: "mole clean --apply-plan <plan-file>", purpose: "Apply a previously reviewed plan and stream progress."),
-            PlannedCommand(command: "mole clean --whitelist", purpose: "Manage protected cleanup paths.")
-        ],
-        safetyNotes: [
-            "Preview is mandatory before Apply is enabled.",
-            "High-risk categories require explicit confirmation.",
-            "Full Disk Access gaps should be shown as scan warnings.",
-            "Shell-side path validation remains the final deletion gate."
-        ],
-        availableNow: [
-            "CLI dry-run exists, but its terminal output is not yet a stable GUI contract.",
-            "Whitelist files already exist and can be surfaced in Settings."
-        ]
-    )
+    @EnvironmentObject private var model: MoleAppModel
 
     var body: some View {
-        PlannedFlowPane(plan: plan)
+        Workspace(title: "Clean", subtitle: "Scan and remove caches, logs, temp files, and app leftovers.") {
+            HStack {
+                Button {
+                    Task { await model.runCleanScan() }
+                } label: {
+                    Label(model.cleanState == .loading ? "Scanning..." : "Scan", systemImage: "magnifyingglass")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(model.cleanState == .loading)
+
+                if model.cleanState == .loading {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text(model.cleanProgress.isEmpty ? "Scanning cleanup candidates..." : model.cleanProgress)
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer()
+
+                if model.cleanState == .ready {
+                    Button {
+                        Task { await model.runCleanApply() }
+                    } label: {
+                        Label("Clean Now", systemImage: "trash")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .disabled(model.cleanState == .loading)
+                }
+            }
+
+            if case let .failed(message) = model.cleanState {
+                ErrorBanner(message: message)
+            }
+
+            if model.cleanState == .loading && !model.cleanOutput.isEmpty {
+                ScrollView {
+                    Text(model.cleanOutput)
+                        .font(.system(size: 12, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(minHeight: 300)
+            }
+
+            if !model.cleanCategories.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    SectionHeader(title: "Scan Results", icon: "list.bullet.clipboard")
+
+                    HStack(spacing: 16) {
+                        MetricStrip(items: [
+                            ("Categories", "\(model.cleanCategories.count)"),
+                            ("Reclaimable", model.cleanTotalSize)
+                        ])
+                    }
+
+                    ForEach(model.cleanCategories) { cat in
+                        HStack(spacing: 12) {
+                            Image(systemName: cat.icon)
+                                .font(.system(size: 14))
+                                .foregroundStyle(cat.color)
+                                .frame(width: 20)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(cat.name)
+                                    .font(.system(size: 13, weight: .medium))
+                                if !cat.detail.isEmpty {
+                                    Text(cat.detail)
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer()
+                            Text(cat.size)
+                                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                .foregroundStyle(cat.size == "--" ? .secondary : .primary)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                    }
+
+                    ScrollView {
+                        Text(model.cleanOutput)
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .frame(maxHeight: 200)
+                }
+            } else if model.cleanState == .idle {
+                EmptyState(
+                    icon: "sparkles",
+                    title: "Ready to clean",
+                    detail: "Click Scan to find caches, logs, temp files, and other reclaimable space."
+                )
+            }
+        }
     }
+}
+
+struct CleanCategory: Identifiable {
+    let id = UUID()
+    let name: String
+    let size: String
+    let detail: String
+    let icon: String
+    let color: Color
 }
 
 struct OptimizePane: View {
