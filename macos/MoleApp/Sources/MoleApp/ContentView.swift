@@ -543,29 +543,33 @@ struct SettingsPane: View {
                         }
                     }
 
-                    if model.updateState == .ready {
+                    if model.updateState == .ready || (model.updateState == .loading && !model.updateProgress.isEmpty) {
                         HStack(spacing: 12) {
                             Text("New version \(model.latestVersion) available")
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(.orange)
 
-                            Button {
-                                Task { await model.performUpdate() }
-                            } label: {
-                                Label("Update Now", systemImage: "arrow.down.circle")
+                            if model.updateState != .loading {
+                                Button {
+                                    Task { await model.performUpdate() }
+                                } label: {
+                                    Label("Update Now", systemImage: "arrow.down.circle")
+                                }
+                                .buttonStyle(.borderedProminent)
                             }
-                            .buttonStyle(.borderedProminent)
-                            .disabled(model.updateState == .loading)
                         }
 
                         if !model.updateProgress.isEmpty {
-                            HStack(spacing: 8) {
-                                ProgressView()
-                                    .controlSize(.small)
+                            VStack(alignment: .leading, spacing: 6) {
                                 Text(model.updateProgress)
                                     .font(.system(size: 12))
                                     .foregroundStyle(.secondary)
+                                if model.updateDownloadPercent > 0 && model.updateDownloadPercent < 1 {
+                                    ProgressView(value: model.updateDownloadPercent, total: 1.0)
+                                        .tint(.accentColor)
+                                }
                             }
+                            .frame(maxWidth: 300)
                         }
                     }
 

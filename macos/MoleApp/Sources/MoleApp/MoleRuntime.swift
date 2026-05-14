@@ -275,6 +275,7 @@ final class MoleAppModel: ObservableObject {
     @Published var updateState: LoadState = .idle
     @Published var latestVersion: String = ""
     @Published var updateProgress: String = ""
+    @Published var updateDownloadPercent: Double = 0
     private var updateDownloadURL: String = ""
 
     @Published var status: StatusSnapshot?
@@ -615,6 +616,7 @@ final class MoleAppModel: ObservableObject {
         guard !updateDownloadURL.isEmpty else { return }
         updateState = .loading
         updateProgress = "Downloading..."
+        updateDownloadPercent = 0
         do {
             let zipURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("Mole-update.zip")
             let updateDir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("Mole-update")
@@ -622,7 +624,22 @@ final class MoleAppModel: ObservableObject {
             try? FileManager.default.removeItem(at: zipURL)
             try? FileManager.default.removeItem(at: updateDir)
 
-            let (zipLocation, _) = try await URLSession.shared.download(from: URL(string: updateDownloadURL)!)
+            // Download with progress
+            let downloadDelegate = DownloadProgressDelegate()
+            downloadDelegate.onProgress = { [weak self] percent in
+                Task { @MainActor in
+                    self?.updateDownloadPercent = percent
+                    self?.updateProgress = "Downloading... \(Int(percent * 100))%"
+                }
+            }
+            let session = URLSession(configuration: .default, delegate: downloadDelegate, delegateQueue: nil)
+            let (zipLocation, response) = try await session.download(from: URL(string: updateDownloadURL)!)
+            let expectedLength = response.expectedContentLength
+            if expectedLength > 0 {
+                let sizeStr = ByteCountFormatter.string(fromByteCount: expectedLength, countStyle: .file)
+                updateProgress = "Downloaded \(sizeStr)"
+            }
+
             try FileManager.default.moveItem(at: zipLocation, to: zipURL)
 
             updateProgress = "Extracting..."
@@ -641,40 +658,53 @@ final class MoleAppModel: ObservableObject {
                 throw NSError(domain: "Update", code: 2, userInfo: [NSLocalizedDescriptionKey: "No app found in archive"])
             }
 
-            updateProgress = "Replacing..."
-
             let currentApp = Bundle.main.bundleURL
             let currentAppName = currentApp.lastPathComponent
             let newAppDest = currentApp.deletingLastPathComponent().appendingPathComponent(currentAppName)
 
-            var trashResult: NSURL?
-            try FileManager.default.trashItem(at: currentApp, resultingItemURL: &trashResult)
+            // Write a shell script that replaces and relaunches after the app exits
+            let scriptURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("Mole-relink.sh")
+            let script = """
+            #!/bin/bash
+            # Wait for the old app to exit
+            while pgrep -f "\(currentApp.path)" > /dev/null 2>&1; do
+                sleep 0.5
+            done
+            # Trash old app
+            mv "\(currentApp.path)" "$HOME/.Trash/\(currentAppName)" 2>/dev/null
+            # Copy new app
+            cp -R "\(newApp.path)" "\(newAppDest.path)"
+            # Remove quarantine
+            /usr/bin/xattr -cr "\(newAppDest.path)"
+            # Cleanup
+            rm -rf "\(zipURL.path)" "\(updateDir.path)" "$0"
+            # Relaunch
+            open "\(newAppDest.path)"
+            """
+            try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+            let chmod = Process()
+            chmod.executableURL = URL(fileURLWithPath: "/bin/chmod")
+            chmod.arguments = ["+x", scriptURL.path]
+            try chmod.run()
+            chmod.waitUntilExit()
 
-            try FileManager.default.copyItem(at: newApp, to: newAppDest)
+            updateProgress = "Restarting..."
 
-            updateProgress = "Finishing..."
+            // Launch the script in background, then terminate
+            let runner = Process()
+            runner.executableURL = URL(fileURLWithPath: "/bin/bash")
+            runner.arguments = [scriptURL.path]
+            try runner.run()
+            // Detach so it survives app termination
+            try? runner.run()
 
-            let xattr = Process()
-            xattr.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
-            xattr.arguments = ["-cr", newAppDest.path]
-            try xattr.run()
-            xattr.waitUntilExit()
-
-            try? FileManager.default.removeItem(at: zipURL)
-            try? FileManager.default.removeItem(at: updateDir)
-
-            // Relaunch via open command and terminate
-            let open = Process()
-            open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            open.arguments = [newAppDest.path]
-            try open.run()
-
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 NSApplication.shared.terminate(nil)
             }
         } catch {
             updateState = .failed(error.localizedDescription)
             updateProgress = ""
+            updateDownloadPercent = 0
         }
     }
 
@@ -808,4 +838,18 @@ private extension Array {
 
 private func stripANSI(_ text: String) -> String {
     text.replacingOccurrences(of: #"\u{001B}\[[0-9;]*m"#, with: "", options: .regularExpression)
+}
+
+private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate {
+    var onProgress: ((Double) -> Void)?
+    private var total: Int64 = 0
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {}
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        if totalBytesExpectedToWrite > 0 {
+            total = totalBytesExpectedToWrite
+            onProgress?(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
+        }
+    }
 }
