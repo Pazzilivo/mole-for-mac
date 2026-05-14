@@ -587,21 +587,16 @@ final class MoleAppModel: ObservableObject {
     func checkForUpdates() async {
         updateState = .loading
         do {
-            // Use GitHub releases redirect (not API) to avoid rate limits
             let checkURL = URL(string: "https://github.com/Pazzilivo/mole-for-mac/releases/latest")!
             var request = URLRequest(url: checkURL)
             request.setValue("Mole-macOS/\(currentVersion)", forHTTPHeaderField: "User-Agent")
-            // Disable redirect following so we get the 302 + Location header
-            let session = URLSession(configuration: .default, delegate: RedirectBlocker.shared, delegateQueue: nil)
-            let (_, response) = try await session.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse,
-                  (httpResponse.statusCode == 301 || httpResponse.statusCode == 302),
-                  let location = httpResponse.value(forHTTPHeaderField: "Location"),
-                  location.contains("/tag/") else {
+            let (_, response) = try await URLSession.shared.data(for: request)
+            guard let finalURL = response.url?.absoluteString,
+                  finalURL.contains("/tag/") else {
                 updateState = .idle
                 return
             }
-            let tag = location.components(separatedBy: "/tag/").last ?? ""
+            let tag = finalURL.components(separatedBy: "/tag/").last ?? ""
             let remote = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
             latestVersion = remote
 
@@ -624,17 +619,14 @@ final class MoleAppModel: ObservableObject {
             let zipURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("Mole-update.zip")
             let updateDir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("Mole-update")
 
-            // Clean previous temp files
             try? FileManager.default.removeItem(at: zipURL)
             try? FileManager.default.removeItem(at: updateDir)
 
-            // Download
             let (zipLocation, _) = try await URLSession.shared.download(from: URL(string: updateDownloadURL)!)
             try FileManager.default.moveItem(at: zipLocation, to: zipURL)
 
             updateProgress = "Extracting..."
 
-            // Unzip
             let unzip = Process()
             unzip.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
             unzip.arguments = ["-x", "-k", zipURL.path, updateDir.path]
@@ -644,7 +636,6 @@ final class MoleAppModel: ObservableObject {
                 throw NSError(domain: "Update", code: 1, userInfo: [NSLocalizedDescriptionKey: "Extraction failed"])
             }
 
-            // Find the .app bundle inside the extracted directory
             let contents = try FileManager.default.contentsOfDirectory(at: updateDir, includingPropertiesForKeys: nil)
             guard let newApp = contents.first(where: { $0.pathExtension == "app" }) else {
                 throw NSError(domain: "Update", code: 2, userInfo: [NSLocalizedDescriptionKey: "No app found in archive"])
@@ -656,29 +647,31 @@ final class MoleAppModel: ObservableObject {
             let currentAppName = currentApp.lastPathComponent
             let newAppDest = currentApp.deletingLastPathComponent().appendingPathComponent(currentAppName)
 
-            // Trash old app
             var trashResult: NSURL?
             try FileManager.default.trashItem(at: currentApp, resultingItemURL: &trashResult)
 
-            // Copy new app to original location
             try FileManager.default.copyItem(at: newApp, to: newAppDest)
 
             updateProgress = "Finishing..."
 
-            // Remove quarantine
             let xattr = Process()
             xattr.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
             xattr.arguments = ["-cr", newAppDest.path]
             try xattr.run()
             xattr.waitUntilExit()
 
-            // Cleanup temp files
             try? FileManager.default.removeItem(at: zipURL)
             try? FileManager.default.removeItem(at: updateDir)
 
-            // Relaunch
-            NSWorkspace.shared.open(newAppDest)
-            exit(0)
+            // Relaunch via open command and terminate
+            let open = Process()
+            open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+            open.arguments = [newAppDest.path]
+            try open.run()
+
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                NSApplication.shared.terminate(nil)
+            }
         } catch {
             updateState = .failed(error.localizedDescription)
             updateProgress = ""
@@ -815,11 +808,4 @@ private extension Array {
 
 private func stripANSI(_ text: String) -> String {
     text.replacingOccurrences(of: #"\u{001B}\[[0-9;]*m"#, with: "", options: .regularExpression)
-}
-
-private final class RedirectBlocker: NSObject, URLSessionTaskDelegate {
-    static let shared = RedirectBlocker()
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-        completionHandler(nil)
-    }
 }
