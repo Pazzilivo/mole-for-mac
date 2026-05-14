@@ -66,27 +66,44 @@ struct CleanPane: View {
                     }
 
                     ForEach(model.cleanCategories) { cat in
-                        HStack(spacing: 12) {
-                            Image(systemName: cat.icon)
-                                .font(.system(size: 14))
-                                .foregroundStyle(cat.color)
-                                .frame(width: 20)
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(cat.name)
-                                    .font(.system(size: 13, weight: .medium))
-                                if !cat.detail.isEmpty {
-                                    Text(cat.detail)
-                                        .font(.system(size: 11))
-                                        .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 0) {
+                            HStack(spacing: 12) {
+                                Image(systemName: cat.icon)
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(cat.color)
+                                    .frame(width: 20)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(cat.name)
+                                        .font(.system(size: 13, weight: .medium))
+                                    if !cat.detail.isEmpty {
+                                        Text(cat.detail)
+                                            .font(.system(size: 11))
+                                            .foregroundStyle(.secondary)
+                                    }
                                 }
+                                Spacer()
+                                Text(cat.size)
+                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                                    .foregroundStyle(cat.size == "--" ? .secondary : .primary)
                             }
-                            Spacer()
-                            Text(cat.size)
-                                .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                .foregroundStyle(cat.size == "--" ? .secondary : .primary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+
+                            if !cat.files.isEmpty {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    ForEach(cat.files, id: \.self) { file in
+                                        Text(file)
+                                            .font(.system(size: 10, design: .monospaced))
+                                            .foregroundStyle(.tertiary)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                    }
+                                }
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Color(nsColor: .controlBackgroundColor).opacity(0.5))
+                            }
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 8)
                         .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 8))
                     }
 
@@ -117,6 +134,7 @@ struct CleanCategory: Identifiable {
     let detail: String
     let icon: String
     let color: Color
+    var files: [String] = []
 }
 
 struct OptimizePane: View {

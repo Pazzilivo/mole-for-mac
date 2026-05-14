@@ -571,41 +571,93 @@ final class MoleAppModel: ObservableObject {
 
     private func parseCleanOutput(_ output: String) {
         var categories: [CleanCategory] = []
+        var currentCategory: CleanCategory?
+        var currentFiles: [String] = []
+        let sectionHeaders = [
+            "User essentials": ("User App Cache", "archivebox", Color.blue),
+            "App caches": ("App Caches", "internaldrive", Color.teal),
+            "Dev caches": ("Dev Caches", "hammer", Color.blue),
+            "System caches": ("System Caches", "gearshape", Color.purple),
+        ]
+
         for line in output.components(separatedBy: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
 
-            if trimmed.contains("User app cache") {
-                if let size = extractSize(from: trimmed) {
-                    categories.append(CleanCategory(name: "User App Cache", size: size, detail: extractCount(from: trimmed), icon: "archivebox", color: .blue))
+            // Section headers like "➤ User essentials"
+            if let section = sectionHeaders.first(where: { trimmed.contains($0.key) }) {
+                // Flush previous category
+                if var cat = currentCategory {
+                    cat.files = currentFiles
+                    categories.append(cat)
                 }
-            } else if trimmed.contains("User app logs") {
-                if let size = extractSize(from: trimmed) {
-                    categories.append(CleanCategory(name: "User App Logs", size: size, detail: extractCount(from: trimmed), icon: "doc.text", color: .orange))
-                }
-            } else if trimmed.contains("Darwin user temp") {
-                if let size = extractSize(from: trimmed) {
-                    categories.append(CleanCategory(name: "Temp Files", size: size, detail: extractCount(from: trimmed), icon: "clock", color: .purple))
-                }
-            } else if trimmed.contains("Darwin user cache") {
-                if let size = extractSize(from: trimmed) {
-                    categories.append(CleanCategory(name: "System Cache", size: size, detail: extractCount(from: trimmed), icon: "internaldrive", color: .teal))
-                }
-            } else if trimmed.contains("Trash") && trimmed.contains("empty") {
-                categories.append(CleanCategory(name: "Trash", size: "--", detail: "Already empty", icon: "trash", color: .green))
-            } else if trimmed.contains("orphan") || trimmed.contains("Orphan") {
-                if let size = extractSize(from: trimmed) {
-                    categories.append(CleanCategory(name: "Orphan Files", size: size, detail: "", icon: "questionmark.folder", color: .red))
-                }
-            } else if trimmed.contains("Xcode") || trimmed.contains("DerivedData") {
-                if let size = extractSize(from: trimmed) {
-                    categories.append(CleanCategory(name: "Xcode Cache", size: size, detail: "", icon: "hammer", color: .blue))
-                }
-            } else if trimmed.contains("brew") || trimmed.contains("Homebrew") {
-                if let size = extractSize(from: trimmed) {
-                    categories.append(CleanCategory(name: "Homebrew Cache", size: size, detail: "", icon: "mug", color: .orange))
-                }
+                currentCategory = nil
+                currentFiles = []
+                continue
             }
+
+            // Category lines with size (→ prefix)
+            if trimmed.hasPrefix("→") || trimmed.contains("→") {
+                // Flush previous
+                if var cat = currentCategory {
+                    cat.files = currentFiles
+                    categories.append(cat)
+                }
+                currentFiles = []
+
+                if let size = extractSize(from: trimmed) {
+                    if trimmed.contains("User app cache") {
+                        currentCategory = CleanCategory(name: "User App Cache", size: size, detail: extractCount(from: trimmed), icon: "archivebox", color: .blue)
+                    } else if trimmed.contains("User app logs") {
+                        currentCategory = CleanCategory(name: "User App Logs", size: size, detail: extractCount(from: trimmed), icon: "doc.text", color: .orange)
+                    } else if trimmed.contains("Darwin user temp") {
+                        currentCategory = CleanCategory(name: "Temp Files", size: size, detail: extractCount(from: trimmed), icon: "clock", color: .purple)
+                    } else if trimmed.contains("Darwin user cache") {
+                        currentCategory = CleanCategory(name: "System Cache", size: size, detail: extractCount(from: trimmed), icon: "internaldrive", color: .teal)
+                    } else if trimmed.contains("Trash") {
+                        currentCategory = CleanCategory(name: "Trash", size: trimmed.contains("empty") ? "--" : size, detail: trimmed.contains("empty") ? "Items to empty" : "", icon: "trash", color: .green)
+                    } else if trimmed.contains("orphan") || trimmed.contains("Orphan") || trimmed.contains("bun cache") {
+                        currentCategory = CleanCategory(name: "Orphan / Residual", size: size, detail: extractCount(from: trimmed), icon: "questionmark.folder", color: .red)
+                    } else if trimmed.contains("Xcode") || trimmed.contains("DerivedData") {
+                        currentCategory = CleanCategory(name: "Xcode Cache", size: size, detail: extractCount(from: trimmed), icon: "hammer", color: .blue)
+                    } else if trimmed.contains("brew") || trimmed.contains("Homebrew") {
+                        currentCategory = CleanCategory(name: "Homebrew Cache", size: size, detail: extractCount(from: trimmed), icon: "mug", color: .orange)
+                    } else if trimmed.contains("Wallpaper") {
+                        currentCategory = CleanCategory(name: "Wallpaper Cache", size: size, detail: "", icon: "photo", color: .indigo)
+                    } else if trimmed.contains("Media analysis") {
+                        currentCategory = CleanCategory(name: "Media Analysis Cache", size: size, detail: extractCount(from: trimmed), icon: "play.rectangle", color: .pink)
+                    } else if trimmed.contains("App Store") {
+                        currentCategory = CleanCategory(name: "App Store Cache", size: size, detail: extractCount(from: trimmed), icon: "app.badge", color: .blue)
+                    } else {
+                        // Generic category with size
+                        let name = trimmed.replacingOccurrences(of: "→", with: "")
+                            .components(separatedBy: CharacterSet(charactersIn: "0123456789.,")).first?
+                            .trimmingCharacters(in: .whitespacesAndNewlines) ?? trimmed
+                        currentCategory = CleanCategory(name: name, size: size, detail: "", icon: "folder", color: .secondary)
+                    }
+                }
+                continue
+            }
+
+            // File details: [DRY-RUN] lines, Potential orphan lines, or paths starting with / or ~
+            if trimmed.hasPrefix("[DRY-RUN]") {
+                let path = trimmed.replacingOccurrences(of: "[DRY-RUN]", with: "")
+                    .replacingOccurrences(of: "Would sudo remove:", with: "")
+                    .replacingOccurrences(of: "Would remove:", with: "")
+                    .trimmingCharacters(in: .whitespaces)
+                if !path.isEmpty { currentFiles.append(path) }
+            } else if trimmed.contains("orphan dotfile:") || trimmed.contains("orphan:") {
+                let path = trimmed.components(separatedBy: "orphan dotfile:").last?
+                    .components(separatedBy: "orphan:").last?
+                    .trimmingCharacters(in: .whitespaces) ?? trimmed
+                if !path.isEmpty { currentFiles.append(path) }
+            }
+        }
+
+        // Flush last category
+        if var cat = currentCategory {
+            cat.files = currentFiles
+            categories.append(cat)
         }
 
         let totalBytes = categories.compactMap { parseSizeToBytes($0.size) }.reduce(0, +)
