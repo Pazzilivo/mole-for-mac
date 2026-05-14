@@ -432,22 +432,50 @@ final class MoleAppModel: ObservableObject {
         outputBuffer = ""
         startFlushTimer(target: \.uninstallProgress)
         do {
-            let _ = try await runtime.runStreamed(
-                arguments: ["uninstall", appName],
-                timeout: 120,
-                useSudo: useSudo,
-                onOutput: { [weak self] text in
+            let molePath = runtime.moleExecutable.path
+            // Use shell to pipe "y" into mole uninstall for auto-confirmation
+            let shellCommand = useSudo
+                ? "echo y | sudo \(molePath) uninstall \(appName) 2>&1"
+                : "echo y | \(molePath) uninstall \(appName) 2>&1"
+
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/bash")
+            process.arguments = ["-c", shellCommand]
+            process.currentDirectoryURL = runtime.root
+
+            let pipe = Pipe()
+            process.standardOutput = pipe
+            process.standardError = pipe
+
+            var outputData = Data()
+            pipe.fileHandleForReading.readabilityHandler = { handle in
+                let chunk = handle.availableData
+                guard !chunk.isEmpty else { return }
+                outputData.append(chunk)
+                if let text = String(data: chunk, encoding: .utf8) {
                     Task { @MainActor in
-                        self?.bufferOutput(text, progress: \.uninstallProgress)
+                        self.bufferOutput(text, progress: \.uninstallProgress)
                     }
                 }
-            )
+            }
+
+            try process.run()
+            process.waitUntilExit()
+            pipe.fileHandleForReading.readabilityHandler = nil
+
             stopFlushTimer(target: \.uninstallProgress)
-            uninstallState = .idle
-            uninstallProgress = ""
-            append("Uninstalled \(appName)", detail: "App and leftovers moved to Trash.")
-            // Refresh app list
-            await refreshApps()
+
+            if process.terminationStatus == 0 {
+                uninstallState = .idle
+                uninstallProgress = ""
+                append("Uninstalled \(appName)", detail: "App and leftovers moved to Trash.")
+                await refreshApps()
+            } else {
+                let output = String(data: outputData, encoding: .utf8) ?? "Unknown error"
+                uninstallState = .failed(output)
+                uninstallProgress = ""
+                append("Uninstall failed", detail: output, isError: true)
+            }
         } catch {
             stopFlushTimer(target: \.uninstallProgress)
             uninstallState = .failed(error.localizedDescription)
