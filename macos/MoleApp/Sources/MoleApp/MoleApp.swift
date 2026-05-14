@@ -11,12 +11,7 @@ struct MoleDesktopApp: App {
                 .frame(minWidth: 980, minHeight: 680)
                 .task {
                     model.checkFullDiskAccess()
-                    if !model.isAdmin {
-                        model.requestAdmin()
-                    }
-                    if model.isAdmin {
-                        await model.refreshDashboard()
-                    }
+                    await model.refreshDashboard()
                     Task { await model.checkForUpdates() }
                 }
         }
@@ -37,4 +32,3 @@ struct MoleDesktopApp: App {
         }
     }
 }
-

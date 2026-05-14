@@ -124,7 +124,7 @@ final class MoleRuntime {
 
             if useSudo {
                 process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-                process.arguments = [exec.path] + arguments
+                process.arguments = ["-n", exec.path] + arguments
             } else {
                 process.executableURL = exec
                 process.arguments = arguments
@@ -290,7 +290,7 @@ final class MoleAppModel: ObservableObject {
     @Published var deletionLog: [DeletionLogEntry] = []
 
     let runtime = MoleRuntime()
-    private var useSudo: Bool { isAdmin }
+    private var useSudo: Bool { false }
 
     private func startFlushTimer(target: ReferenceWritableKeyPath<MoleAppModel, String>) {
         flushTimer?.invalidate()
@@ -354,7 +354,7 @@ final class MoleAppModel: ObservableObject {
         Timer.scheduledTimer(withTimeInterval: 240, repeats: true) { _ in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-            process.arguments = ["-v"]
+            process.arguments = ["-n", "-v"]
             try? process.run()
         }
     }
