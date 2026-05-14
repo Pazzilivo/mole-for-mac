@@ -681,6 +681,7 @@ final class MoleAppModel: ObservableObject {
             }
 
             updateProgress = "Download complete"
+            // zipLocation is already safely moved by the delegate
             try FileManager.default.moveItem(at: zipLocation, to: zipURL)
 
             updateProgress = "Extracting..."
@@ -894,7 +895,15 @@ private final class UpdateDownloadDelegate: NSObject, URLSessionDownloadDelegate
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        onComplete(location, nil)
+        // The temp file is deleted after this method returns, so move it immediately
+        let dest = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("Mole-update.tmp")
+        try? FileManager.default.removeItem(at: dest)
+        do {
+            try FileManager.default.moveItem(at: location, to: dest)
+            onComplete(dest, nil)
+        } catch {
+            onComplete(nil, error)
+        }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
