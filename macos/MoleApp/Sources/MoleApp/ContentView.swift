@@ -76,6 +76,10 @@ struct OverviewPane: View {
 
     var body: some View {
         Workspace(title: "Overview", subtitle: "System health and the next maintenance actions.") {
+            if !model.hasFullDiskAccess {
+                FullDiskAccessBanner()
+            }
+
             if case let .failed(message) = model.statusState {
                 ErrorBanner(message: message)
             }
@@ -484,6 +488,38 @@ struct ErrorBanner: View {
             .font(.callout)
             .foregroundStyle(.red)
             .textSelection(.enabled)
+    }
+}
+
+struct FullDiskAccessBanner: View {
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("Full Disk Access Required", systemImage: "lock.shield")
+                .font(.headline)
+
+            Text("Mole needs Full Disk Access to scan system caches, app data, and disk usage. Without it, you may see repeated permission prompts or missing data.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("How to grant access:")
+                    .font(.callout.weight(.medium))
+                Text("1. Open System Settings > Privacy & Security > Full Disk Access")
+                Text("2. Click the + button and add Mole.app")
+                Text("3. Restart Mole")
+            }
+            .font(.callout)
+            .foregroundStyle(.secondary)
+
+            Button {
+                NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
+            } label: {
+                Label("Open System Settings", systemImage: "gear")
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding(16)
+        .background(.fill.tertiary, in: RoundedRectangle(cornerRadius: 10))
     }
 }
 
