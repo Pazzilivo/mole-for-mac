@@ -272,6 +272,11 @@ final class MoleAppModel: ObservableObject {
     private var flushTimer: Timer?
     @Published var cleanTotalSize: String = "--"
 
+    @Published var updateState: LoadState = .idle
+    @Published var latestVersion: String = ""
+    @Published var updateProgress: String = ""
+    private var updateDownloadURL: String = ""
+
     @Published var status: StatusSnapshot?
     @Published var apps: [AppEntry] = []
     @Published var analysis: AnalyzeOutput?
@@ -572,6 +577,112 @@ final class MoleAppModel: ObservableObject {
         } catch {
             logsState = .failed(error.localizedDescription)
             append("Log refresh failed", detail: error.localizedDescription, isError: true)
+        }
+    }
+
+    var currentVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+    }
+
+    func checkForUpdates() async {
+        updateState = .loading
+        do {
+            let url = URL(string: "https://api.github.com/repos/Pazzilivo/mole-for-mac/releases/latest")!
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+                throw NSError(domain: "Update", code: (response as? HTTPURLResponse)?.statusCode ?? -1)
+            }
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            guard let tagName = json?["tag_name"] as? String else {
+                updateState = .idle
+                return
+            }
+            let remote = tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName
+            latestVersion = remote
+
+            if remote.compare(currentVersion, options: .numeric) == .orderedDescending {
+                if let assets = json?["assets"] as? [[String: Any]],
+                   let zipAsset = assets.first(where: { ($0["name"] as? String ?? "").hasSuffix(".zip") }),
+                   let downloadURL = zipAsset["browser_download_url"] as? String {
+                    updateDownloadURL = downloadURL
+                    updateState = .ready
+                } else {
+                    updateState = .idle
+                }
+            } else {
+                updateState = .idle
+            }
+        } catch {
+            updateState = .idle
+        }
+    }
+
+    func performUpdate() async {
+        guard !updateDownloadURL.isEmpty else { return }
+        updateState = .loading
+        updateProgress = "Downloading..."
+        do {
+            let zipURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("Mole-update.zip")
+            let updateDir = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("Mole-update")
+
+            // Clean previous temp files
+            try? FileManager.default.removeItem(at: zipURL)
+            try? FileManager.default.removeItem(at: updateDir)
+
+            // Download
+            let (zipLocation, _) = try await URLSession.shared.download(from: URL(string: updateDownloadURL)!)
+            try FileManager.default.moveItem(at: zipLocation, to: zipURL)
+
+            updateProgress = "Extracting..."
+
+            // Unzip
+            let unzip = Process()
+            unzip.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
+            unzip.arguments = ["-x", "-k", zipURL.path, updateDir.path]
+            try unzip.run()
+            unzip.waitUntilExit()
+            guard unzip.terminationStatus == 0 else {
+                throw NSError(domain: "Update", code: 1, userInfo: [NSLocalizedDescriptionKey: "Extraction failed"])
+            }
+
+            // Find the .app bundle inside the extracted directory
+            let contents = try FileManager.default.contentsOfDirectory(at: updateDir, includingPropertiesForKeys: nil)
+            guard let newApp = contents.first(where: { $0.pathExtension == "app" }) else {
+                throw NSError(domain: "Update", code: 2, userInfo: [NSLocalizedDescriptionKey: "No app found in archive"])
+            }
+
+            updateProgress = "Replacing..."
+
+            let currentApp = Bundle.main.bundleURL
+            let currentAppName = currentApp.lastPathComponent
+            let newAppDest = currentApp.deletingLastPathComponent().appendingPathComponent(currentAppName)
+
+            // Trash old app
+            var trashResult: NSURL?
+            try FileManager.default.trashItem(at: currentApp, resultingItemURL: &trashResult)
+
+            // Copy new app to original location
+            try FileManager.default.copyItem(at: newApp, to: newAppDest)
+
+            updateProgress = "Finishing..."
+
+            // Remove quarantine
+            let xattr = Process()
+            xattr.executableURL = URL(fileURLWithPath: "/usr/bin/xattr")
+            xattr.arguments = ["-cr", newAppDest.path]
+            try xattr.run()
+            xattr.waitUntilExit()
+
+            // Cleanup temp files
+            try? FileManager.default.removeItem(at: zipURL)
+            try? FileManager.default.removeItem(at: updateDir)
+
+            // Relaunch
+            NSWorkspace.shared.open(newAppDest)
+            exit(0)
+        } catch {
+            updateState = .failed(error.localizedDescription)
+            updateProgress = ""
         }
     }
 

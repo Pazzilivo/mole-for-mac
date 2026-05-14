@@ -79,6 +79,13 @@ struct OverviewPane: View {
     var body: some View {
         Workspace(title: "Overview", subtitle: "System health at a glance.") {
             VStack(spacing: 20) {
+                if model.updateState == .ready {
+                    UpdateBanner(version: model.latestVersion) {
+                        Task { await model.performUpdate() }
+                    }
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
                 if !model.hasFullDiskAccess {
                     FullDiskAccessBanner()
                         .transition(.move(edge: .top).combined(with: .opacity))
@@ -511,6 +518,66 @@ struct SettingsPane: View {
     var body: some View {
         Workspace(title: "Settings", subtitle: "Runtime, command line access, and local diagnostics.") {
             VStack(alignment: .leading, spacing: 18) {
+                // Updates section
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionHeader(title: "Updates", icon: "arrow.triangle.2.circlepath")
+
+                    HStack(spacing: 12) {
+                        Text("Current version: \(model.currentVersion)")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+
+                        if model.updateState == .loading && model.latestVersion.isEmpty {
+                            ProgressView()
+                                .controlSize(.small)
+                            Text("Checking...")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Button {
+                                Task { await model.checkForUpdates() }
+                            } label: {
+                                Label("Check for Updates", systemImage: "arrow.triangle.2.circlepath")
+                            }
+                            .disabled(model.updateState == .loading)
+                        }
+                    }
+
+                    if model.updateState == .ready {
+                        HStack(spacing: 12) {
+                            Text("New version \(model.latestVersion) available")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.orange)
+
+                            Button {
+                                Task { await model.performUpdate() }
+                            } label: {
+                                Label("Update Now", systemImage: "arrow.down.circle")
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(model.updateState == .loading)
+                        }
+
+                        if !model.updateProgress.isEmpty {
+                            HStack(spacing: 8) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text(model.updateProgress)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    if case let .failed(message) = model.updateState {
+                        Text(message)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.red)
+                    }
+                }
+
+                Divider()
+
                 LabeledContent("Bundled runtime") {
                     Text(model.runtime.root.path)
                         .textSelection(.enabled)
@@ -645,6 +712,28 @@ struct ErrorBanner: View {
         }
         .padding(12)
         .background(.red.opacity(0.08), in: RoundedRectangle(cornerRadius: 8))
+    }
+}
+
+struct UpdateBanner: View {
+    let version: String
+    let onUpdate: () -> Void
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.system(size: 16))
+                .foregroundStyle(.blue)
+            Text("A new version (v\(version)) is available")
+                .font(.system(size: 13, weight: .medium))
+            Spacer()
+            Button("Update", action: onUpdate)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+        }
+        .padding(12)
+        .background(Color.blue.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.blue.opacity(0.15), lineWidth: 1))
     }
 }
 

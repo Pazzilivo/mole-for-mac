@@ -16,6 +16,7 @@ struct MoleDesktopApp: App {
                     } else {
                         await model.refreshDashboard()
                     }
+                    Task { await model.checkForUpdates() }
                 }
         }
         .windowStyle(.hiddenTitleBar)
