@@ -516,7 +516,13 @@ struct UninstallPane: View {
 
             Table(filteredApps, selection: Binding(
                 get: { selectedApp?.id },
-                set: { newID in selectedApp = filteredApps.first(where: { $0.id == newID }) }
+                set: { newID in
+                    if let newID {
+                        selectedApp = filteredApps.first(where: { $0.id == newID })
+                    } else {
+                        selectedApp = nil
+                    }
+                }
             )) {
                 TableColumn("Name", value: \.name)
                 TableColumn("Source") { app in
@@ -540,6 +546,11 @@ struct UninstallPane: View {
                 }
             } message: {
                 Text("This will move \(selectedApp?.name ?? "the app") and its data to Trash. This action can be undone from Finder.")
+            }
+            .onChange(of: model.uninstallState) { _, newState in
+                if newState == .idle || newState == .failed("") {
+                    selectedApp = nil
+                }
             }
         }
     }
