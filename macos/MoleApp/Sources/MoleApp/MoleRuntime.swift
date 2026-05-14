@@ -590,11 +590,13 @@ final class MoleAppModel: ObservableObject {
             // Use GitHub releases redirect (not API) to avoid rate limits
             let checkURL = URL(string: "https://github.com/Pazzilivo/mole-for-mac/releases/latest")!
             var request = URLRequest(url: checkURL)
-            request.httpMethod = "HEAD"
             request.setValue("Mole-macOS/\(currentVersion)", forHTTPHeaderField: "User-Agent")
-            let (_, response) = try await URLSession.shared.data(for: request)
+            // Disable redirect following so we get the 302 + Location header
+            let session = URLSession(configuration: .default, delegate: RedirectBlocker.shared, delegateQueue: nil)
+            let (_, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse,
-                  let location = httpResponse.allHeaderFields["Location"] as? String ?? httpResponse.value(forHTTPHeaderField: "Location"),
+                  (httpResponse.statusCode == 301 || httpResponse.statusCode == 302),
+                  let location = httpResponse.value(forHTTPHeaderField: "Location"),
                   location.contains("/tag/") else {
                 updateState = .idle
                 return
@@ -813,4 +815,11 @@ private extension Array {
 
 private func stripANSI(_ text: String) -> String {
     text.replacingOccurrences(of: #"\u{001B}\[[0-9;]*m"#, with: "", options: .regularExpression)
+}
+
+private final class RedirectBlocker: NSObject, URLSessionTaskDelegate {
+    static let shared = RedirectBlocker()
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
 }
