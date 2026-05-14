@@ -242,6 +242,8 @@ final class MoleAppModel: ObservableObject {
     @Published var optimizeState: LoadState = .idle
     @Published var logsState: LoadState = .idle
 
+    @Published var hasFullDiskAccess: Bool = true
+
     @Published var status: StatusSnapshot?
     @Published var apps: [AppEntry] = []
     @Published var analysis: AnalyzeOutput?
@@ -253,10 +255,17 @@ final class MoleAppModel: ObservableObject {
     let runtime = MoleRuntime()
 
     func refreshDashboard() async {
+        checkFullDiskAccess()
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.refreshStatus() }
             group.addTask { await self.refreshApps() }
         }
+    }
+
+    func checkFullDiskAccess() {
+        let testPath = FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent("Library/Safari/Bookmarks.plist")
+        hasFullDiskAccess = FileManager.default.isReadableFile(atPath: testPath.path)
     }
 
     func refreshStatus() async {
@@ -264,7 +273,17 @@ final class MoleAppModel: ObservableObject {
         do {
             let result = try await runtime.runMole(["status", "--json"], timeout: 20)
             let decoder = JSONDecoder()
-            decoder.dateDecodingStrategy = .iso8601
+            let isoFormatter = ISO8601DateFormatter()
+            isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            decoder.dateDecodingStrategy = .custom { decoder in
+                let container = try decoder.singleValueContainer()
+                let string = try container.decode(String.self)
+                if let date = isoFormatter.date(from: string) { return date }
+                let fallback = ISO8601DateFormatter()
+                fallback.formatOptions = [.withInternetDateTime]
+                if let date = fallback.date(from: string) { return date }
+                throw DecodingError.dataCorruptedError(in: container, debugDescription: "Cannot decode date: \(string)")
+            }
             status = try decoder.decode(StatusSnapshot.self, from: result.stdout)
             statusState = .ready
             append("Status refreshed", detail: "System metrics loaded from bundled Mole runtime.")
