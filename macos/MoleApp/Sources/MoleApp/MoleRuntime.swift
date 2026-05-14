@@ -661,22 +661,24 @@ final class MoleAppModel: ObservableObject {
             let currentApp = Bundle.main.bundleURL
             let currentAppName = currentApp.lastPathComponent
             let newAppDest = currentApp.deletingLastPathComponent().appendingPathComponent(currentAppName)
+            let myPID = ProcessInfo.processInfo.processIdentifier
 
-            // Write a shell script that replaces and relaunches after the app exits
+            // Write a shell script that waits for this process to exit, then replaces and relaunches
             let scriptURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("Mole-relink.sh")
             let script = """
             #!/bin/bash
-            # Wait for the old app to exit
-            while pgrep -f "\(currentApp.path)" > /dev/null 2>&1; do
-                sleep 0.5
+            # Wait for the old Mole process to exit
+            while kill -0 \(myPID) 2>/dev/null; do
+                sleep 0.3
             done
+            sleep 0.5
             # Trash old app
-            mv "\(currentApp.path)" "$HOME/.Trash/\(currentAppName)" 2>/dev/null
+            mv "\(currentApp.path)" "$HOME/.Trash/\(currentAppName).$(date +%s)" 2>/dev/null
             # Copy new app
             cp -R "\(newApp.path)" "\(newAppDest.path)"
             # Remove quarantine
             /usr/bin/xattr -cr "\(newAppDest.path)"
-            # Cleanup
+            # Cleanup temp files
             rm -rf "\(zipURL.path)" "\(updateDir.path)" "$0"
             # Relaunch
             open "\(newAppDest.path)"
@@ -690,13 +692,13 @@ final class MoleAppModel: ObservableObject {
 
             updateProgress = "Restarting..."
 
-            // Launch the script in background, then terminate
+            // Use nohup to fully detach the script from this process
             let runner = Process()
-            runner.executableURL = URL(fileURLWithPath: "/bin/bash")
-            runner.arguments = [scriptURL.path]
+            runner.executableURL = URL(fileURLWithPath: "/usr/bin/nohup")
+            runner.arguments = ["/bin/bash", scriptURL.path]
+            runner.standardOutput = FileHandle.nullDevice
+            runner.standardError = FileHandle.nullDevice
             try runner.run()
-            // Detach so it survives app termination
-            try? runner.run()
 
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 NSApplication.shared.terminate(nil)
