@@ -605,6 +605,8 @@ final class MoleAppModel: ObservableObject {
                 updateDownloadURL = "https://github.com/Pazzilivo/mole-for-mac/releases/download/\(tag)/Mole-\(remote).zip"
                 updateState = .ready
             } else {
+                latestVersion = ""
+                updateDownloadURL = ""
                 updateState = .idle
             }
         } catch {
