@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_SRC="$PROJECT_ROOT/macos/MoleApp"
 SWIFT_SRC="$APP_SRC/Sources/MoleApp"
+APP_RESOURCES="$APP_SRC/Resources"
 BUILD_DIR="${MOLE_MACOS_BUILD_DIR:-$PROJECT_ROOT/build/macos}"
 APP_DIR="$BUILD_DIR/Mole.app"
 CONTENTS_DIR="$APP_DIR/Contents"
@@ -69,6 +70,9 @@ log "Copying app metadata..."
 copy_path "$APP_SRC/Info.plist" "$CONTENTS_DIR/Info.plist"
 plutil -lint "$CONTENTS_DIR/Info.plist" > /dev/null
 
+log "Copying app icon..."
+copy_path "$APP_RESOURCES/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
+
 log "Bundling Mole runtime..."
 copy_path "$PROJECT_ROOT/mole" "$RUNTIME_DIR/mole"
 copy_path "$PROJECT_ROOT/mo" "$RUNTIME_DIR/mo"
@@ -88,4 +92,3 @@ if command -v codesign > /dev/null 2>&1; then
 fi
 
 log "Created $APP_DIR"
-

@@ -21,6 +21,13 @@ The script creates:
 build/macos/Mole.app
 ```
 
+The app icon source lives at `macos/MoleApp/Resources/AppIcon.svg`. Regenerate
+the bundled `.icns` after icon changes with:
+
+```bash
+./scripts/generate-macos-icon.sh
+```
+
 If Go is available, the script runs `make build` first so `bin/analyze-go` and
 `bin/status-go` are included. Without Go, the app still builds, but status and
 disk analysis views will report that the bundled Go binaries are missing.
@@ -43,4 +50,3 @@ Mole.app
 Future production work should add structured JSON plan/apply commands for
 cleanup, purge, installer cleanup, and uninstall previews before exposing those
 destructive actions in the GUI.
-
