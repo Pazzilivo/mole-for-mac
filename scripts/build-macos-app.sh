@@ -88,4 +88,3 @@ if command -v codesign > /dev/null 2>&1; then
 fi
 
 log "Created $APP_DIR"
-
