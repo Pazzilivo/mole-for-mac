@@ -435,8 +435,8 @@ final class MoleAppModel: ObservableObject {
             let molePath = runtime.moleExecutable.path
             // Use shell to pipe "y" into mole uninstall for auto-confirmation
             let shellCommand = useSudo
-                ? "echo y | sudo \(molePath) uninstall \(appName) 2>&1"
-                : "echo y | \(molePath) uninstall \(appName) 2>&1"
+                ? "printf 'y\n\n' | sudo \(molePath) uninstall \(appName) 2>&1"
+                : "printf 'y\n\n' | \(molePath) uninstall \(appName) 2>&1"
 
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/bash")
