@@ -1,6 +1,6 @@
 # Makefile for Mole
 
-.PHONY: all build clean release
+.PHONY: all build clean release macos-app
 
 # Output directory
 BIN_DIR := bin
@@ -56,3 +56,6 @@ release-arm64: mod-download
 clean:
 	@echo "Cleaning binaries..."
 	rm -f $(BIN_DIR)/$(ANALYZE)-* $(BIN_DIR)/$(STATUS)-* $(BIN_DIR)/$(ANALYZE)-go $(BIN_DIR)/$(STATUS)-go
+
+macos-app:
+	./scripts/build-macos-app.sh

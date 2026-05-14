@@ -203,6 +203,10 @@ main() {
             "--dry-run")
                 export MOLE_DRY_RUN=1
                 ;;
+            "--plan-json")
+                generate_health_json
+                exit 0
+                ;;
             "--whitelist")
                 manage_whitelist "optimize"
                 exit 0

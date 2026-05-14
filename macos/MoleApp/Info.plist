@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key>
+    <string>en</string>
+    <key>CFBundleExecutable</key>
+    <string>Mole</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.tw93.mole.desktop</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>Mole</string>
+    <key>CFBundleDisplayName</key>
+    <string>Mole</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>0.1.0</string>
+    <key>CFBundleVersion</key>
+    <string>1</string>
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.utilities</string>
+    <key>LSMinimumSystemVersion</key>
+    <string>13.0</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Mole may use Finder automation to move selected files to Trash.</string>
+    <key>NSDesktopFolderUsageDescription</key>
+    <string>Mole scans selected desktop files only when you ask it to analyze disk usage.</string>
+    <key>NSDocumentsFolderUsageDescription</key>
+    <string>Mole scans selected documents only when you ask it to analyze disk usage.</string>
+    <key>NSDownloadsFolderUsageDescription</key>
+    <string>Mole scans downloads only when you ask it to find installers or analyze disk usage.</string>
+    <key>NSRemovableVolumesUsageDescription</key>
+    <string>Mole scans removable volumes only when you select them for analysis or cleanup.</string>
+    <key>NSSupportsAutomaticTermination</key>
+    <true/>
+    <key>NSSupportsSuddenTermination</key>
+    <true/>
+</dict>
+</plist>
+

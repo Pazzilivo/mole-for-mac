@@ -31,6 +31,7 @@ show_optimize_help() {
     echo ""
     echo "Options:"
     echo "  --dry-run         Preview optimization without making changes"
+    echo "  --plan-json       Output optimization plan as JSON"
     echo "  --whitelist       Manage protected items"
     echo "  --debug           Show detailed operation logs"
     echo "  -h, --help        Show this help message"

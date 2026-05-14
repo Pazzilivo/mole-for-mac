@@ -32,6 +32,7 @@ tests/tmp-*
 *.cache
 .gocache/
 .gomod/
+build/
 
 # Backup files
 *.bak

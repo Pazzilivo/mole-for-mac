@@ -398,6 +398,15 @@ EOF
 	[[ "$output" == *"described"* ]]
 }
 
+@test "mo optimize --plan-json outputs optimization plan without applying tasks" {
+	run env HOME="$HOME" MOLE_TEST_NO_AUTH=1 "$PROJECT_ROOT/mole" optimize --plan-json
+
+	[ "$status" -eq 0 ]
+	echo "$output" | python3 -c 'import sys, json; d=json.load(sys.stdin); assert "optimizations" in d and len(d["optimizations"]) > 0'
+	[[ "$output" == *'"memory_used_gb"'* ]]
+	[[ "$output" == *'"optimizations"'* ]]
+}
+
 @test "execute_optimization dispatches actions" {
 	run env HOME="$HOME" PROJECT_ROOT="$PROJECT_ROOT" bash --noprofile --norc <<'EOF'
 set -euo pipefail
