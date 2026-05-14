@@ -626,22 +626,27 @@ final class MoleAppModel: ObservableObject {
             try? FileManager.default.removeItem(at: zipURL)
             try? FileManager.default.removeItem(at: updateDir)
 
-            // Download with progress
-            let downloadDelegate = DownloadProgressDelegate()
-            downloadDelegate.onProgress = { [weak self] percent in
-                Task { @MainActor in
-                    self?.updateDownloadPercent = percent
-                    self?.updateProgress = "Downloading... \(Int(percent * 100))%"
+            // Download with progress using delegate + continuation
+            let zipLocation: URL = try await withCheckedThrowingContinuation { continuation in
+                let delegate = UpdateDownloadDelegate { [weak self] percent in
+                    Task { @MainActor in
+                        self?.updateDownloadPercent = percent
+                        self?.updateProgress = "Downloading... \(Int(percent * 100))%"
+                    }
+                } onComplete: { url, error in
+                    if let error {
+                        continuation.resume(throwing: error)
+                    } else if let url {
+                        continuation.resume(returning: url)
+                    } else {
+                        continuation.resume(throwing: NSError(domain: "Update", code: -1))
+                    }
                 }
-            }
-            let session = URLSession(configuration: .default, delegate: downloadDelegate, delegateQueue: nil)
-            let (zipLocation, response) = try await session.download(from: URL(string: updateDownloadURL)!)
-            let expectedLength = response.expectedContentLength
-            if expectedLength > 0 {
-                let sizeStr = ByteCountFormatter.string(fromByteCount: expectedLength, countStyle: .file)
-                updateProgress = "Downloaded \(sizeStr)"
+                let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+                session.downloadTask(with: URL(string: updateDownloadURL)!).resume()
             }
 
+            updateProgress = "Download complete"
             try FileManager.default.moveItem(at: zipLocation, to: zipURL)
 
             updateProgress = "Extracting..."
@@ -844,16 +849,27 @@ private func stripANSI(_ text: String) -> String {
     text.replacingOccurrences(of: #"\u{001B}\[[0-9;]*m"#, with: "", options: .regularExpression)
 }
 
-private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate {
-    var onProgress: ((Double) -> Void)?
-    private var total: Int64 = 0
+private final class UpdateDownloadDelegate: NSObject, URLSessionDownloadDelegate {
+    let onProgress: (Double) -> Void
+    let onComplete: (URL?, Error?) -> Void
+    private var resumeCalled = false
 
-    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {}
+    init(onProgress: @escaping (Double) -> Void, onComplete: @escaping (URL?, Error?) -> Void) {
+        self.onProgress = onProgress
+        self.onComplete = onComplete
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        onComplete(location, nil)
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error { onComplete(nil, error) }
+    }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
         if totalBytesExpectedToWrite > 0 {
-            total = totalBytesExpectedToWrite
-            onProgress?(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
+            onProgress(Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
         }
     }
 }
