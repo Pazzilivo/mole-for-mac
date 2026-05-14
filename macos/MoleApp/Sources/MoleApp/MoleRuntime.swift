@@ -500,26 +500,40 @@ final class MoleAppModel: ObservableObject {
         cleanCategories = []
         cleanTotalSize = "--"
         outputBuffer = ""
-        startFlushTimer(target: \.cleanOutput)
+
+        var allOutput = ""
+        let lock = NSLock()
+
         do {
             let result = try await runtime.runStreamed(
                 arguments: ["clean", "--dry-run"],
                 timeout: 600,
                 useSudo: useSudo,
-                onOutput: { [weak self] text in
+                onOutput: { text in
+                    let cleaned = stripANSI(text)
+                    lock.lock()
+                    allOutput += cleaned
+                    lock.unlock()
+                    let line = cleaned.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !line.isEmpty else { return }
                     Task { @MainActor in
-                        self?.bufferOutput(text, progress: \.cleanProgress)
+                        self.cleanProgress = line
                     }
                 }
             )
-            stopFlushTimer(target: \.cleanOutput)
-            let output = String(data: result.stdout, encoding: .utf8) ?? ""
-            cleanOutput += stripANSI(output)
+            // Also grab any remaining stdout
+            let remaining = String(data: result.stdout, encoding: .utf8) ?? ""
+            lock.lock()
+            allOutput += remaining
+            lock.unlock()
+
+            cleanOutput = allOutput
+            cleanProgress = ""
             parseCleanOutput(cleanOutput)
             cleanState = .ready
             append("Clean scan finished", detail: "Found \(cleanCategories.count) categories, \(cleanTotalSize) reclaimable.")
         } catch {
-            stopFlushTimer(target: \.cleanOutput)
+            cleanProgress = ""
             cleanState = .failed(error.localizedDescription)
             append("Clean scan failed", detail: error.localizedDescription, isError: true)
         }
@@ -529,25 +543,27 @@ final class MoleAppModel: ObservableObject {
         cleanState = .loading
         cleanProgress = "Cleaning..."
         outputBuffer = ""
-        startFlushTimer(target: \.cleanOutput)
         do {
-            let result = try await runtime.runStreamed(
+            let _ = try await runtime.runStreamed(
                 arguments: ["clean"],
                 timeout: 600,
                 useSudo: useSudo,
-                onOutput: { [weak self] text in
+                onOutput: { text in
+                    let line = stripANSI(text).trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !line.isEmpty else { return }
                     Task { @MainActor in
-                        self?.bufferOutput(text, progress: \.cleanProgress)
+                        self.cleanProgress = line
                     }
                 }
             )
-            stopFlushTimer(target: \.cleanOutput)
             cleanCategories = []
             cleanTotalSize = "--"
+            cleanProgress = ""
+            cleanOutput = ""
             cleanState = .idle
             append("Clean completed", detail: "Cleanup finished successfully.")
         } catch {
-            stopFlushTimer(target: \.cleanOutput)
+            cleanProgress = ""
             cleanState = .failed(error.localizedDescription)
             append("Clean failed", detail: error.localizedDescription, isError: true)
         }
