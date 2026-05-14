@@ -460,6 +460,8 @@ struct AnalyzePane: View {
 struct UninstallPane: View {
     @EnvironmentObject private var model: MoleAppModel
     @State private var query = ""
+    @State private var selectedApp: AppEntry?
+    @State private var showConfirm = false
 
     private var filteredApps: [AppEntry] {
         guard !query.isEmpty else { return model.apps }
@@ -470,7 +472,7 @@ struct UninstallPane: View {
     }
 
     var body: some View {
-        Workspace(title: "Uninstall", subtitle: "List installed apps and prepare removal flows.") {
+        Workspace(title: "Uninstall", subtitle: "Remove applications and their leftover files.") {
             HStack {
                 TextField("Search apps...", text: $query)
                     .textFieldStyle(.roundedBorder)
@@ -482,13 +484,40 @@ struct UninstallPane: View {
                     Image(systemName: "arrow.clockwise")
                 }
                 .help("Rescan")
+
+                Spacer()
+
+                if let app = selectedApp {
+                    Button {
+                        showConfirm = true
+                    } label: {
+                        Label("Uninstall \(app.name)", systemImage: "trash")
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.red)
+                    .disabled(model.uninstallState == .loading)
+                }
             }
 
-            if case let .failed(message) = model.appsState {
+            if case let .failed(message) = model.uninstallState {
                 ErrorBanner(message: message)
             }
 
-            Table(filteredApps) {
+            if model.uninstallState == .loading {
+                HStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text(model.uninstallProgress.isEmpty ? "Uninstalling..." : model.uninstallProgress)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+
+            Table(filteredApps, selection: Binding(
+                get: { selectedApp?.id },
+                set: { newID in selectedApp = filteredApps.first(where: { $0.id == newID }) }
+            )) {
                 TableColumn("Name", value: \.name)
                 TableColumn("Source") { app in
                     Text(app.source ?? "App")
@@ -502,10 +531,16 @@ struct UninstallPane: View {
                 }
             }
             .frame(minHeight: 440)
-
-            Text("Destructive uninstall actions are held back until JSON preview and apply commands are added.")
-                .font(.system(size: 12))
-                .foregroundStyle(.tertiary)
+            .alert("Uninstall \(selectedApp?.name ?? "App")?", isPresented: $showConfirm) {
+                Button("Cancel", role: .cancel) {}
+                Button("Uninstall", role: .destructive) {
+                    if let app = selectedApp {
+                        Task { await model.uninstallApp(app) }
+                    }
+                }
+            } message: {
+                Text("This will move \(selectedApp?.name ?? "the app") and its data to Trash. This action can be undone from Finder.")
+            }
         }
     }
 }

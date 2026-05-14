@@ -148,7 +148,7 @@ struct AnalyzeFile: Decodable, Identifiable {
     let size: Int64
 }
 
-struct AppEntry: Decodable, Identifiable {
+struct AppEntry: Decodable, Identifiable, Hashable {
     var id: String { path ?? uninstallName ?? name }
 
     let name: String

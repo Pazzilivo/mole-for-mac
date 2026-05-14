@@ -268,6 +268,9 @@ final class MoleAppModel: ObservableObject {
     @Published var cleanOutput: String = ""
     @Published var cleanCategories: [CleanCategory] = []
 
+    @Published var uninstallState: LoadState = .idle
+    @Published var uninstallProgress: String = ""
+
     private var outputBuffer = ""
     private var flushTimer: Timer?
     @Published var cleanTotalSize: String = "--"
@@ -419,6 +422,37 @@ final class MoleAppModel: ObservableObject {
             stopFlushTimer(target: \.analyzeProgress)
             analyzeState = .failed(error.localizedDescription)
             append("Disk analysis failed", detail: error.localizedDescription, isError: true)
+        }
+    }
+
+    func uninstallApp(_ app: AppEntry) async {
+        let appName = app.uninstallName ?? app.name
+        uninstallState = .loading
+        uninstallProgress = "Uninstalling \(appName)..."
+        outputBuffer = ""
+        startFlushTimer(target: \.uninstallProgress)
+        do {
+            let _ = try await runtime.runStreamed(
+                arguments: ["uninstall", appName],
+                timeout: 120,
+                useSudo: useSudo,
+                onOutput: { [weak self] text in
+                    Task { @MainActor in
+                        self?.bufferOutput(text, progress: \.uninstallProgress)
+                    }
+                }
+            )
+            stopFlushTimer(target: \.uninstallProgress)
+            uninstallState = .idle
+            uninstallProgress = ""
+            append("Uninstalled \(appName)", detail: "App and leftovers moved to Trash.")
+            // Refresh app list
+            await refreshApps()
+        } catch {
+            stopFlushTimer(target: \.uninstallProgress)
+            uninstallState = .failed(error.localizedDescription)
+            uninstallProgress = ""
+            append("Uninstall failed", detail: error.localizedDescription, isError: true)
         }
     }
 
