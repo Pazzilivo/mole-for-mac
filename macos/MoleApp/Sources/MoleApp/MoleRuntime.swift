@@ -292,6 +292,27 @@ final class MoleAppModel: ObservableObject {
     let runtime = MoleRuntime()
     private var useSudo: Bool { isAdmin }
 
+    private func ensureSudo() {
+        guard isAdmin else { return }
+        let check = Process()
+        check.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
+        check.arguments = ["-vn"]
+        check.standardOutput = FileHandle.nullDevice
+        check.standardError = FileHandle.nullDevice
+        // If sudo -vn fails, sudo session expired
+        do {
+            try check.run()
+            check.waitUntilExit()
+            if check.terminationStatus != 0 {
+                isAdmin = false
+                requestAdmin()
+            }
+        } catch {
+            isAdmin = false
+            requestAdmin()
+        }
+    }
+
     private func startFlushTimer(target: ReferenceWritableKeyPath<MoleAppModel, String>) {
         flushTimer?.invalidate()
         flushTimer = Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { [weak self] _ in
@@ -323,6 +344,7 @@ final class MoleAppModel: ObservableObject {
 
     func refreshDashboard() async {
         checkFullDiskAccess()
+        ensureSudo()
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.refreshStatus() }
             group.addTask { await self.refreshApps() }
@@ -494,6 +516,7 @@ final class MoleAppModel: ObservableObject {
     }
 
     func runCleanScan() async {
+        ensureSudo()
         cleanState = .loading
         cleanProgress = ""
         cleanOutput = ""
@@ -540,6 +563,7 @@ final class MoleAppModel: ObservableObject {
     }
 
     func runCleanApply() async {
+        ensureSudo()
         cleanState = .loading
         cleanProgress = "Cleaning..."
         outputBuffer = ""
