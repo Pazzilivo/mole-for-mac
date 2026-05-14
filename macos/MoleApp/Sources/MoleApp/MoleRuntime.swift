@@ -433,48 +433,57 @@ final class MoleAppModel: ObservableObject {
         startFlushTimer(target: \.uninstallProgress)
         do {
             let molePath = runtime.moleExecutable.path
-            // Use shell to pipe "y" into mole uninstall for auto-confirmation
             let shellCommand = useSudo
                 ? "printf 'y\n\n' | sudo \(molePath) uninstall \(appName) 2>&1"
                 : "printf 'y\n\n' | \(molePath) uninstall \(appName) 2>&1"
 
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/bin/bash")
-            process.arguments = ["-c", shellCommand]
-            process.currentDirectoryURL = runtime.root
+            // Run on background thread to avoid blocking UI
+            let result = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Int32, Error>) in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    let process = Process()
+                    process.executableURL = URL(fileURLWithPath: "/bin/bash")
+                    process.arguments = ["-c", shellCommand]
+                    process.currentDirectoryURL = self.runtime.root
 
-            let pipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = pipe
+                    let pipe = Pipe()
+                    process.standardOutput = pipe
+                    process.standardError = pipe
 
-            var outputData = Data()
-            pipe.fileHandleForReading.readabilityHandler = { handle in
-                let chunk = handle.availableData
-                guard !chunk.isEmpty else { return }
-                outputData.append(chunk)
-                if let text = String(data: chunk, encoding: .utf8) {
-                    Task { @MainActor in
-                        self.bufferOutput(text, progress: \.uninstallProgress)
+                    let outputBuffer = PipeDataBuffer()
+                    pipe.fileHandleForReading.readabilityHandler = { handle in
+                        let chunk = handle.availableData
+                        guard !chunk.isEmpty else { return }
+                        outputBuffer.append(chunk)
+                        if let text = String(data: chunk, encoding: .utf8) {
+                            Task { @MainActor in
+                                self.bufferOutput(text, progress: \.uninstallProgress)
+                            }
+                        }
+                    }
+
+                    do {
+                        try process.run()
+                        process.waitUntilExit()
+                        pipe.fileHandleForReading.readabilityHandler = nil
+                        continuation.resume(returning: process.terminationStatus)
+                    } catch {
+                        pipe.fileHandleForReading.readabilityHandler = nil
+                        continuation.resume(throwing: error)
                     }
                 }
             }
 
-            try process.run()
-            process.waitUntilExit()
-            pipe.fileHandleForReading.readabilityHandler = nil
-
             stopFlushTimer(target: \.uninstallProgress)
 
-            if process.terminationStatus == 0 {
+            if result == 0 {
                 uninstallState = .idle
                 uninstallProgress = ""
                 append("Uninstalled \(appName)", detail: "App and leftovers moved to Trash.")
                 await refreshApps()
             } else {
-                let output = String(data: outputData, encoding: .utf8) ?? "Unknown error"
-                uninstallState = .failed(output)
+                uninstallState = .failed("Uninstall exited with code \(result)")
                 uninstallProgress = ""
-                append("Uninstall failed", detail: output, isError: true)
+                append("Uninstall failed", detail: "Exit code \(result)", isError: true)
             }
         } catch {
             stopFlushTimer(target: \.uninstallProgress)
