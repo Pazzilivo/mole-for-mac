@@ -1,0 +1,59 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">Mole app icon</title>
+  <desc id="desc">A dark macOS utility tile with an abstract Mole tunnel mark and cleaning glints.</desc>
+  <defs>
+    <linearGradient id="background" x1="162" y1="96" x2="862" y2="928" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1f3036"/>
+      <stop offset="0.48" stop-color="#101a20"/>
+      <stop offset="1" stop-color="#05080c"/>
+    </linearGradient>
+    <radialGradient id="aquaGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(752 236) rotate(131) scale(640)">
+      <stop offset="0" stop-color="#2dd4bf" stop-opacity="0.34"/>
+      <stop offset="0.42" stop-color="#2dd4bf" stop-opacity="0.1"/>
+      <stop offset="1" stop-color="#2dd4bf" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="goldGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(292 774) rotate(-38) scale(570)">
+      <stop offset="0" stop-color="#f6c267" stop-opacity="0.28"/>
+      <stop offset="0.5" stop-color="#f6c267" stop-opacity="0.08"/>
+      <stop offset="1" stop-color="#f6c267" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="rim" x1="239" y1="451" x2="781" y2="706" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ffe09a"/>
+      <stop offset="0.48" stop-color="#f6c267"/>
+      <stop offset="1" stop-color="#d98a36"/>
+    </linearGradient>
+    <linearGradient id="cleanLine" x1="334" y1="511" x2="699" y2="678" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#89f7e4"/>
+      <stop offset="1" stop-color="#20bfa9"/>
+    </linearGradient>
+    <filter id="softShadow" x="-18%" y="-18%" width="136%" height="136%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="28" stdDeviation="32" flood-color="#000000" flood-opacity="0.38"/>
+    </filter>
+    <clipPath id="tile">
+      <rect x="56" y="56" width="912" height="912" rx="210"/>
+    </clipPath>
+  </defs>
+
+  <rect x="56" y="56" width="912" height="912" rx="210" fill="url(#background)"/>
+  <g clip-path="url(#tile)">
+    <rect x="56" y="56" width="912" height="912" fill="url(#aquaGlow)"/>
+    <rect x="56" y="56" width="912" height="912" fill="url(#goldGlow)"/>
+    <path d="M70 705C196 666 298 656 419 681C548 708 647 785 797 758C897 740 953 683 987 642V992H70Z" fill="#070b0f" opacity="0.56"/>
+    <path d="M154 196C256 110 401 88 518 131C468 144 405 179 352 231C284 299 251 377 247 445C215 336 180 255 154 196Z" fill="#ffffff" opacity="0.05"/>
+  </g>
+
+  <g filter="url(#softShadow)">
+    <path d="M201 711C239 517 364 380 512 380C660 380 785 517 823 711C762 743 660 764 512 764C364 764 262 743 201 711Z" fill="#0a1115"/>
+    <path d="M251 674C296 514 396 426 512 426C628 426 728 514 773 674C713 696 629 708 512 708C395 708 311 696 251 674Z" fill="#17272d"/>
+    <path d="M256 679C306 512 403 430 512 430C621 430 718 512 768 679" fill="none" stroke="url(#rim)" stroke-width="84" stroke-linecap="round"/>
+    <path d="M330 671C370 555 437 505 512 505C587 505 654 555 694 671" fill="none" stroke="url(#cleanLine)" stroke-width="34" stroke-linecap="round"/>
+    <path d="M401 658C431 613 467 594 512 594C557 594 593 613 623 658" fill="none" stroke="#eefcf8" stroke-width="15" stroke-linecap="round" opacity="0.78"/>
+  </g>
+
+  <path d="M705 283L726 326L769 347L726 368L705 411L684 368L641 347L684 326Z" fill="#f8d97d"/>
+  <path d="M330 255L343 283L371 296L343 309L330 337L317 309L289 296L317 283Z" fill="#6ff4de" opacity="0.95"/>
+  <path d="M776 504L785 524L806 533L785 542L776 563L767 542L746 533L767 524Z" fill="#95fff0" opacity="0.88"/>
+  <path d="M250 494L260 514L281 524L260 534L250 554L240 534L219 524L240 514Z" fill="#ffd98a" opacity="0.82"/>
+
+  <rect x="56" y="56" width="912" height="912" rx="210" fill="none" stroke="#ffffff" stroke-opacity="0.1" stroke-width="3"/>
+</svg>
