@@ -64,6 +64,11 @@ final class MoleRuntime {
             .appendingPathComponent("Library/Logs/mole/deletions.log")
     }
 
+    var cleanListFile: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/mole/clean-list.txt")
+    }
+
     func checkRuntime() throws {
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: root.path, isDirectory: &isDirectory), isDirectory.boolValue else {
@@ -660,9 +665,178 @@ final class MoleAppModel: ObservableObject {
             categories.append(cat)
         }
 
+        let structuredCategories = parseCleanListFile()
+        if !structuredCategories.isEmpty {
+            categories = structuredCategories
+        }
+
         let totalBytes = categories.compactMap { parseSizeToBytes($0.size) }.reduce(0, +)
         cleanTotalSize = ByteCountFormatter.string(fromByteCount: Int64(totalBytes), countStyle: .file)
         cleanCategories = categories
+    }
+
+    private func parseCleanListFile() -> [CleanCategory] {
+        guard let text = try? String(contentsOf: runtime.cleanListFile, encoding: .utf8) else {
+            return []
+        }
+
+        var categories: [CleanCategory] = []
+        var currentSection = ""
+        var currentTargets: [CleanTarget] = []
+
+        func flushSection() {
+            guard !currentSection.isEmpty, !currentTargets.isEmpty else { return }
+            categories.append(makeCleanCategory(section: currentSection, targets: currentTargets))
+            currentTargets = []
+        }
+
+        for rawLine in text.components(separatedBy: "\n") {
+            let line = rawLine.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !line.isEmpty else { continue }
+            if line.hasPrefix("# Summary") { break }
+            if line.hasPrefix("#") { continue }
+
+            if line.hasPrefix("==="), line.hasSuffix("===") {
+                flushSection()
+                currentSection = line
+                    .replacingOccurrences(of: "=", with: "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                continue
+            }
+
+            guard !currentSection.isEmpty else { continue }
+            guard let markerRange = line.range(of: "  # ") ?? line.range(of: " # ") else { continue }
+
+            let path = String(line[..<markerRange.lowerBound]).trimmingCharacters(in: .whitespaces)
+            let metadata = String(line[markerRange.upperBound...]).trimmingCharacters(in: .whitespaces)
+            guard !path.isEmpty else { continue }
+
+            let size = extractSize(from: metadata) ?? "--"
+            let sizeBytes = parseSizeToBytes(size)
+            let itemCount = extractItemCount(from: metadata)
+            let risk = classifyCleanTargetRisk(section: currentSection, path: path, sizeBytes: sizeBytes)
+
+            currentTargets.append(
+                CleanTarget(
+                    path: path,
+                    size: size,
+                    sizeBytes: sizeBytes,
+                    itemCount: itemCount,
+                    risk: risk.level,
+                    reason: risk.reason
+                )
+            )
+        }
+
+        flushSection()
+        return categories
+    }
+
+    private func makeCleanCategory(section: String, targets: [CleanTarget]) -> CleanCategory {
+        let totalBytes = targets.reduce(Int64(0)) { $0 + max($1.sizeBytes, 0) }
+        let totalItems = targets.reduce(0) { $0 + max($1.itemCount, 1) }
+        let highestRisk = targets.map(\.risk).max(by: { $0.severity < $1.severity }) ?? .low
+        let presentation = cleanCategoryPresentation(for: section)
+        let size = totalBytes > 0
+            ? ByteCountFormatter.string(fromByteCount: totalBytes, countStyle: .file)
+            : "--"
+
+        return CleanCategory(
+            name: section,
+            size: size,
+            detail: "\(targets.count) locations, \(totalItems) items",
+            icon: presentation.icon,
+            color: presentation.color,
+            risk: highestRisk,
+            riskReason: cleanCategoryRiskReason(section: section, targets: targets, highestRisk: highestRisk),
+            targets: targets,
+            files: targets.map(\.path)
+        )
+    }
+
+    private func cleanCategoryPresentation(for section: String) -> (icon: String, color: Color) {
+        let lower = section.lowercased()
+        if lower.contains("user essentials") { return ("archivebox", .blue) }
+        if lower.contains("app caches") { return ("internaldrive", .teal) }
+        if lower.contains("browser") { return ("globe", .orange) }
+        if lower.contains("cloud") || lower.contains("office") { return ("cloud", .cyan) }
+        if lower.contains("developer") { return ("hammer", .blue) }
+        if lower.contains("application support") { return ("folder.badge.gearshape", .purple) }
+        if lower.contains("application") { return ("app", .indigo) }
+        if lower.contains("virtualization") { return ("shippingbox", .orange) }
+        if lower.contains("leftover") { return ("questionmark.folder", .red) }
+        if lower.contains("backup") || lower.contains("firmware") { return ("externaldrive.badge.timemachine", .red) }
+        if lower.contains("time machine") { return ("clock.arrow.circlepath", .red) }
+        if lower.contains("large") { return ("doc.badge.ellipsis", .orange) }
+        if lower.contains("system") { return ("gearshape", .red) }
+        if lower.contains("project") { return ("folder.badge.gearshape", .blue) }
+        return ("folder", .secondary)
+    }
+
+    private func cleanCategoryRiskReason(section: String, targets: [CleanTarget], highestRisk: CleanRiskLevel) -> String {
+        let matching = targets.filter { $0.risk == highestRisk }
+        let count = matching.count
+        let reason = matching.first?.reason ?? highestRisk.explanation
+        if count <= 1 {
+            return reason
+        }
+        return "\(count) \(highestRisk.title.lowercased()) risk locations. \(reason)"
+    }
+
+    private func classifyCleanTargetRisk(section: String, path: String, sizeBytes: Int64) -> (level: CleanRiskLevel, reason: String) {
+        let lowerSection = section.lowercased()
+        let lowerPath = path.lowercased()
+        let isLarge = sizeBytes >= Int64(1024 * 1024 * 1024)
+
+        if lowerSection.contains("trash") || lowerPath.contains("/.trash") || lowerPath.contains("/trash") {
+            return (.high, "Trash cleanup can permanently remove items the user may still expect to recover.")
+        }
+
+        if lowerSection.contains("system") || path.hasPrefix("/Library") || path.hasPrefix("/System") {
+            return (.high, "System or admin-scoped path; review before deleting.")
+        }
+
+        if lowerSection.contains("backup") || lowerSection.contains("firmware") || lowerSection.contains("time machine") ||
+            lowerPath.contains("mobilesync/backup") || lowerPath.contains("backup") || lowerPath.contains(".ipsw") {
+            return (.high, "Backup or firmware data; deleting may remove restore points or require re-download.")
+        }
+
+        if lowerSection.contains("leftover") || lowerPath.contains("/launchagents") || lowerPath.contains("/launchdaemons") ||
+            lowerPath.contains("/preferences/") {
+            return (.high, "Residual app state or settings; verify the app is no longer needed.")
+        }
+
+        if lowerSection.contains("developer") || lowerPath.contains("/node_modules") || lowerPath.contains("/.dart_tool") ||
+            lowerPath.contains("/build") || lowerPath.contains("/.next/cache") || lowerPath.contains("/deriveddata") {
+            return (.medium, "Developer cache or build output; safe to regenerate but may trigger rebuilds or downloads.")
+        }
+
+        if lowerSection.contains("browser") {
+            return (.medium, "Browser cache; pages may re-download assets, but cookies and profiles are not targeted.")
+        }
+
+        if lowerSection.contains("cloud") || lowerSection.contains("office") {
+            return (.medium, "Cloud or office cache; apps may need to re-sync or rebuild local previews.")
+        }
+
+        if lowerSection.contains("application support") {
+            return (.medium, "Application Support cache/log path; app state should be reviewed if the app is important.")
+        }
+
+        if lowerSection.contains("virtualization") {
+            return (.medium, "Virtualization cache; virtual machines may re-download or rebuild helper files.")
+        }
+
+        if isLarge {
+            return (.medium, "Large cleanup target; review the path before deleting.")
+        }
+
+        if lowerPath.contains("cache") || lowerPath.contains("/logs") || lowerPath.contains("/tmp") ||
+            lowerPath.contains("__pycache__") || lowerPath.hasSuffix(".log") {
+            return (.low, "Regenerable cache, log, or temporary file.")
+        }
+
+        return (.medium, "Review the path before deleting; Mole classified it as cleanup data.")
     }
 
     private func extractSize(from line: String) -> String? {
@@ -677,10 +851,24 @@ final class MoleAppModel: ObservableObject {
         return String(line[range])
     }
 
+    private func extractItemCount(from line: String) -> Int {
+        let pattern = #"(\d+)\s*items?"#
+        guard let range = line.range(of: pattern, options: .regularExpression),
+              let value = Int(line[range].components(separatedBy: CharacterSet.decimalDigits.inverted).joined()) else {
+            return 1
+        }
+        return max(value, 1)
+    }
+
     private func parseSizeToBytes(_ size: String) -> Int64 {
-        let parts = size.split(separator: " ")
-        guard parts.count == 2, let value = Double(parts[0]) else { return 0 }
-        let unit = String(parts[1])
+        let pattern = #"(\d+\.?\d*)\s*([KMGT]?B)"#
+        guard let match = size.range(of: pattern, options: .regularExpression) else { return 0 }
+        let normalized = String(size[match])
+            .replacingOccurrences(of: " ", with: "")
+            .uppercased()
+        let numberPart = normalized.prefix { $0.isNumber || $0 == "." }
+        let unit = String(normalized.dropFirst(numberPart.count))
+        guard let value = Double(numberPart) else { return 0 }
         switch unit {
         case "KB": return Int64(value * 1024)
         case "MB": return Int64(value * 1024 * 1024)
