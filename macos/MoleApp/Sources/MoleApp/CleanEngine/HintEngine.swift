@@ -329,7 +329,8 @@ actor HintEngine {
             // Check for associated bundle existence
             if let associatedBundles = plist["AssociatedBundleIdentifiers"] as? [String], !associatedBundles.isEmpty {
                 for bundleId in associatedBundles {
-                    if !await isAppInstalled(bundleId: bundleId) {
+                    let appExists = await isAppInstalled(bundleId: bundleId)
+                    if !appExists {
                         let fileName = (plistPath as NSString).lastPathComponent
 
                         return CleanHint(
