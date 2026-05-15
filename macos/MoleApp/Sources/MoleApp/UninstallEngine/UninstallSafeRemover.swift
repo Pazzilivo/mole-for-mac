@@ -124,18 +124,18 @@ actor UninstallSafeRemover {
 
         // Check if path is empty
         guard !path.isEmpty else {
-            throw RemovalError.invalidPath("Path is empty")
+            throw UninstallRemovalError.invalidPath("Path is empty")
         }
 
         // Check if path is protected
         guard !isProtectedPath(url) else {
-            throw RemovalError.protectedPath("Path is protected: \(path)")
+            throw UninstallRemovalError.protectedPath("Path is protected: \(path)")
         }
 
         // Check if path exists
         let fileManager = FileManager.default
         guard fileManager.fileExists(atPath: path) else {
-            throw RemovalError.pathNotFound("Path does not exist: \(path)")
+            throw UninstallRemovalError.pathNotFound("Path does not exist: \(path)")
         }
 
         // Resolve symlinks
@@ -158,19 +158,19 @@ actor UninstallSafeRemover {
 
             // Check if symlink target is protected
             guard !isProtectedPath(destinationURL) else {
-                throw RemovalError.protectedPath("Symlink points to protected path: \(path) -> \(resolvedDestination)")
+                throw UninstallRemovalError.protectedPath("Symlink points to protected path: \(path) -> \(resolvedDestination)")
             }
         }
 
         // Check for sensitive data
         if containsSensitiveData(at: url) {
-            throw RemovalError.sensitiveData("Path may contain sensitive data: \(path)")
+            throw UninstallRemovalError.sensitiveData("Path may contain sensitive data: \(path)")
         }
     }
 }
 
 // MARK: - Removal Errors
-enum RemovalError: Error, LocalizedError {
+enum UninstallRemovalError: Error, LocalizedError {
     case invalidPath(String)
     case protectedPath(String)
     case pathNotFound(String)

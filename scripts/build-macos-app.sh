@@ -43,13 +43,6 @@ require ditto
 
 cd "$PROJECT_ROOT"
 
-if command -v go > /dev/null 2>&1; then
-    log "Building Go helper binaries..."
-    make build
-else
-    log "Go was not found; building the app without analyze-go/status-go."
-fi
-
 rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR" "$RUNTIME_DIR"
 
@@ -84,7 +77,6 @@ copy_path "$PROJECT_ROOT/README.md" "$RUNTIME_DIR/README.md"
 chmod +x "$MACOS_DIR/Mole"
 chmod +x "$RUNTIME_DIR/mole" "$RUNTIME_DIR/mo"
 find "$RUNTIME_DIR/bin" -type f -name '*.sh' -exec chmod +x {} +
-find "$RUNTIME_DIR/bin" -type f \( -name '*-go' -o -name '*-darwin-*' \) -exec chmod +x {} + 2> /dev/null || true
 
 if command -v codesign > /dev/null 2>&1; then
     log "Applying local ad-hoc signature..."
