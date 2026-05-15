@@ -95,7 +95,10 @@ actor SafeRemover {
         let path = url.path.lowercased()
 
         return SafeRemover.sensitivePatterns.contains { pattern in
-            path.contains(pattern.lowercased())
+            let lowerPattern = pattern.lowercased()
+            // Check if pattern appears as a complete path component, not as substring
+            let pathComponents = path.components(separatedBy: "/")
+            return pathComponents.contains(lowerPattern)
         }
     }
 
