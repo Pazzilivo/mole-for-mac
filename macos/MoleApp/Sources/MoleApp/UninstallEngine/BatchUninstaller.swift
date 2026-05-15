@@ -157,15 +157,17 @@ actor BatchUninstaller {
     private func unloadLaunchAgent(at url: URL) async throws {
         try await withCheckedThrowingContinuation { continuation in
             var hasResumed = false
-            let resumeOnce = { (result: Result<Void, Error>) in
+
+            func resumeOnce() {
                 guard !hasResumed else { return }
                 hasResumed = true
-                switch result {
-                case .success:
-                    continuation.resume()
-                case .failure(let error):
-                    continuation.resume(throwing: error)
-                }
+                continuation.resume()
+            }
+
+            func resumeThrowingOnce(_ error: Error) {
+                guard !hasResumed else { return }
+                hasResumed = true
+                continuation.resume(throwing: error)
             }
 
             DispatchQueue.global(qos: .userInitiated).async {
@@ -178,12 +180,12 @@ actor BatchUninstaller {
                     task.waitUntilExit()
 
                     if task.terminationStatus != 0 {
-                        resumeOnce(.failure(UninstallError.launchAgentUnloadFailed(url.path)))
-                    } else {
-                        resumeOnce(.success(()))
+                        throw UninstallError.launchAgentUnloadFailed(url.path)
                     }
+
+                    resumeOnce()
                 } catch {
-                    resumeOnce(.failure(error))
+                    resumeThrowingOnce(error)
                 }
             }
         }
@@ -209,15 +211,17 @@ actor BatchUninstaller {
         // Use LSSharedFileList for older macOS versions
         try await withCheckedThrowingContinuation { continuation in
             var hasResumed = false
-            let resumeOnce = { (result: Result<Void, Error>) in
+
+            func resumeOnce() {
                 guard !hasResumed else { return }
                 hasResumed = true
-                switch result {
-                case .success:
-                    continuation.resume()
-                case .failure(let error):
-                    continuation.resume(throwing: error)
-                }
+                continuation.resume()
+            }
+
+            func resumeThrowingOnce(_ error: Error) {
+                guard !hasResumed else { return }
+                hasResumed = true
+                continuation.resume(throwing: error)
             }
 
             DispatchQueue.global(qos: .userInitiated).async {
@@ -253,9 +257,9 @@ actor BatchUninstaller {
                         }
                     }
 
-                    resumeOnce(.success(()))
+                    resumeOnce()
                 } catch {
-                    resumeOnce(.failure(error))
+                    resumeThrowingOnce(error)
                 }
             }
         }
@@ -265,15 +269,17 @@ actor BatchUninstaller {
         // Use lsregister to unregister the app bundle
         try await withCheckedThrowingContinuation { continuation in
             var hasResumed = false
-            let resumeOnce = { (result: Result<Void, Error>) in
+
+            func resumeOnce() {
                 guard !hasResumed else { return }
                 hasResumed = true
-                switch result {
-                case .success:
-                    continuation.resume()
-                case .failure(let error):
-                    continuation.resume(throwing: error)
-                }
+                continuation.resume()
+            }
+
+            func resumeThrowingOnce(_ error: Error) {
+                guard !hasResumed else { return }
+                hasResumed = true
+                continuation.resume(throwing: error)
             }
 
             DispatchQueue.global(qos: .userInitiated).async {
@@ -284,9 +290,9 @@ actor BatchUninstaller {
                 do {
                     try task.run()
                     task.waitUntilExit()
-                    resumeOnce(.success(()))
+                    resumeOnce()
                 } catch {
-                    resumeOnce(.failure(error))
+                    resumeThrowingOnce(error)
                 }
             }
         }
@@ -295,15 +301,17 @@ actor BatchUninstaller {
     private func refreshLaunchServices() async throws {
         try await withCheckedThrowingContinuation { continuation in
             var hasResumed = false
-            let resumeOnce = { (result: Result<Void, Error>) in
+
+            func resumeOnce() {
                 guard !hasResumed else { return }
                 hasResumed = true
-                switch result {
-                case .success:
-                    continuation.resume()
-                case .failure(let error):
-                    continuation.resume(throwing: error)
-                }
+                continuation.resume()
+            }
+
+            func resumeThrowingOnce(_ error: Error) {
+                guard !hasResumed else { return }
+                hasResumed = true
+                continuation.resume(throwing: error)
             }
 
             DispatchQueue.global(qos: .userInitiated).async {
@@ -314,9 +322,9 @@ actor BatchUninstaller {
                 do {
                     try task.run()
                     task.waitUntilExit()
-                    resumeOnce(.success(()))
+                    resumeOnce()
                 } catch {
-                    resumeOnce(.failure(error))
+                    resumeThrowingOnce(error)
                 }
             }
         }

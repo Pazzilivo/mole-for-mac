@@ -18,6 +18,8 @@ actor HintEngine {
         ".profile", ".inputrc", ".hushlogin",
         ".oh-my-zsh", ".zinit", ".zplug", ".antigen", ".p10k.zsh",
         ".config", ".local", ".cache",
+        // Nix Store - CRITICAL: Never scan or suggest cleaning Nix Store
+        ".nix", ".nix-profile", ".nix-defexpr", ".nix-gc", ".nix-log",
         // Security
         ".ssh", ".gnupg", ".gpg", ".password-store",
         // Git
@@ -33,6 +35,8 @@ actor HintEngine {
         ".m2", ".gradle", ".sbt", ".ivy2", ".lein",
         ".hex", ".mix", ".opam", ".cpan", ".cpanm",
         ".conda", ".virtualenvs", ".pipx",
+        // Nix Package Manager (CRITICAL: Never delete /nix or .nix directories)
+        ".nix",
         // Cloud / DevOps
         ".docker", ".kube", ".minikube", ".helm",
         ".aws", ".azure", ".terraform", ".vagrant",
@@ -54,9 +58,7 @@ actor HintEngine {
         // Homebrew / VCS
         ".homebrew", ".hg", ".hgrc", ".svn", ".bazaar",
         // Fly.io / Gemini
-        ".fly", ".gemini",
-        // Nix package manager - CRITICAL: Never flag Nix directories as orphans
-        ".nix", ".nix-profile", ".nix-defexpr", ".nix-gc"
+        ".fly", ".gemini"
     ]
 
     // MARK: - Hint Categories
@@ -203,7 +205,6 @@ actor HintEngine {
         let maxArtifacts = 3
 
         // Search for artifacts (limited depth for performance)
-        // NOTE: We don't use .skipsHiddenFiles because we want to find hidden artifacts like .gradle, .tox, etc.
         guard let enumerator = fileManager.enumerator(
             at: URL(fileURLWithPath: rootPath),
             includingPropertiesForKeys: [.isDirectoryKey],
@@ -222,6 +223,11 @@ actor HintEngine {
                 var isDirectory: ObjCBool = false
                 guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory),
                       isDirectory.boolValue else { continue }
+
+                // CRITICAL: Skip Nix Store paths to prevent catastrophic deletion
+                if path.contains("/nix/") || path.contains("/.nix") {
+                    continue
+                }
 
                 let size = calculateDirectorySize(at: path)
 
@@ -323,8 +329,7 @@ actor HintEngine {
             // Check for associated bundle existence
             if let associatedBundles = plist["AssociatedBundleIdentifiers"] as? [String], !associatedBundles.isEmpty {
                 for bundleId in associatedBundles {
-                    let isInstalled = await isAppInstalled(bundleId: bundleId)
-                    if !isInstalled {
+                    if !await isAppInstalled(bundleId: bundleId) {
                         let fileName = (plistPath as NSString).lastPathComponent
 
                         return CleanHint(
@@ -392,13 +397,6 @@ actor HintEngine {
     }
 
     private func analyzeOrphanDotfile(_ name: String, path: String) async -> CleanHint? {
-        // CRITICAL SAFETY CHECK: Never flag Nix Store or related paths
-        // These should never be cleaned as they could delete entire Nix installations
-        if path.contains("/nix/var/nix/store") || path.contains("/nix/var/nix/profiles") ||
-           path.contains("nix-gc") || path.contains("nix-profile") || path.contains("nix-defexpr") {
-            return nil
-        }
-
         // Remove the leading dot for analysis
         let bareName = String(name.dropFirst())
 

@@ -9,8 +9,8 @@ actor PurgeEngine {
     private let safeRemover = SafeRemover()
 
     // Purge state tracking
-    private var hasResumed = false
     private var customPaths: [String] = []
+    private var sudoAvailable = false
 
     /// Result type for purge operations
     struct PurgeResult: Sendable {
@@ -51,6 +51,45 @@ actor PurgeEngine {
     func configure(_ newConfig: PurgeConfig) {
         config = newConfig
         logger.info("PurgeEngine configured: dryRun=\(newConfig.dryRun), maxDepth=\(newConfig.maxDepth)")
+
+        // Check sudo availability when config requires sudo
+        if newConfig.requireSudo {
+            checkSudoAvailability()
+        }
+    }
+
+    /// Check if sudo is available without password prompt
+    private func checkSudoAvailability() {
+        Task.detached {
+            do {
+                let result = try await self.processManager.executeWithSudoOutput(command: "true", arguments: [])
+                await MainActor.run {
+                    self.sudoAvailable = true
+                    self.logger.info("Sudo is available without password")
+                }
+            } catch {
+                await MainActor.run {
+                    self.sudoAvailable = false
+                    self.logger.warning("Sudo requires password or is not available")
+                }
+            }
+        }
+    }
+
+    /// Request sudo permission from user
+    func requestSudoPermission() async throws {
+        logger.info("Requesting sudo permission from user")
+
+        do {
+            // Try a simple sudo command that requires privilege
+            _ = try await processManager.executeWithSudoOutput(command: "true", arguments: [])
+            sudoAvailable = true
+            logger.info("Sudo permission granted")
+        } catch {
+            sudoAvailable = false
+            logger.error("Sudo permission denied: \(error.localizedDescription)")
+            throw PurgeError.sudoRequired("Sudo permission is required but not available. Please run: sudo true")
+        }
     }
 
     /// Add custom path to purge list
@@ -73,6 +112,12 @@ actor PurgeEngine {
     /// Execute purge operation on all configured paths
     func runPurge() async throws -> [PurgeResult] {
         logger.info("Starting purge operation")
+
+        // Check sudo permission if required
+        if config.requireSudo && !sudoAvailable {
+            try await requestSudoPermission()
+        }
+
         var results: [PurgeResult] = []
 
         // Standard project purge paths
@@ -161,13 +206,9 @@ actor PurgeEngine {
         }
 
         do {
-            // Delete found targets safely
+            // Delete found targets using SafeRemover
             for target in targetsFound {
-                do {
-                    try await safeRemover.remove(at: URL(fileURLWithPath: target))
-                } catch {
-                    logger.warning("Failed to remove purge target at \(target): \(error.localizedDescription)")
-                }
+                try? await safeRemover.remove(at: URL(fileURLWithPath: target))
             }
 
             logger.info("Purge completed for \(path): \(totalFiles) files deleted, \(self.formatBytes(totalSizeKB * 1024)) saved")
@@ -299,20 +340,7 @@ actor PurgeEngine {
         }
 
         do {
-            // Check if we need sudo for this operation
-            if config.requireSudo || requiresSudoForPath(path) {
-                logger.warning("Cache purge for \(category) may require elevated permissions")
-                // Attempt normal removal first, fall back to sudo if needed
-                do {
-                    try await safeRemover.remove(at: URL(fileURLWithPath: path))
-                } catch {
-                    logger.info("Normal removal failed, attempting with sudo helper")
-                    try await removeWithSudo(path)
-                }
-            } else {
-                try await safeRemover.remove(at: URL(fileURLWithPath: path))
-            }
-
+            try? fileManager.removeItem(atPath: path)
             try? fileManager.createDirectory(atPath: path, withIntermediateDirectories: true, attributes: nil)
 
             logger.info("Cache purge completed for \(category): \(self.formatBytes(totalSizeKB * 1024)) saved")
@@ -334,36 +362,6 @@ actor PurgeEngine {
                 filesDeleted: 0,
                 executionTime: Date().timeIntervalSince(startTime)
             )
-        }
-    }
-
-    /// Check if a path requires sudo for removal
-    private func requiresSudoForPath(_ path: String) -> Bool {
-        // System cache directories typically require elevated permissions
-        let systemPaths = [
-            "/Library/Caches",
-            "/System/Library/Caches",
-            "/private/var/folders",
-            "/Users/Shared"
-        ]
-
-        return systemPaths.contains { path.hasPrefix($0) }
-    }
-
-    /// Remove a path using sudo (when elevated permissions are required)
-    private func removeWithSudo(_ path: String) async throws {
-        logger.info("Attempting sudo removal for: \(path)")
-
-        // Use ProcessManager to execute removal with sudo
-        do {
-            try await processManager.execute(
-                command: "/usr/bin/sudo",
-                arguments: ["/bin/rm", "-rf", path]
-            )
-            logger.info("Sudo removal successful for: \(path)")
-        } catch {
-            logger.error("Sudo removal failed for \(path): \(error.localizedDescription)")
-            throw PurgeError.permissionDenied("Failed to remove \(path) with elevated permissions")
         }
     }
 
@@ -482,19 +480,19 @@ struct PurgeTarget: Identifiable, Sendable {
 }
 
 /// Purge-specific errors
-enum PurgeError: Error, LocalizedError {
+enum PurgeError: LocalizedError {
+    case sudoRequired(String)
+    case pathInaccessible(String)
     case permissionDenied(String)
-    case invalidPath(String)
-    case removalFailed(String)
 
     var errorDescription: String? {
         switch self {
-        case .permissionDenied(let message):
-            return "Permission denied: \(message)"
-        case .invalidPath(let message):
-            return "Invalid path: \(message)"
-        case .removalFailed(let message):
-            return "Removal failed: \(message)"
+        case .sudoRequired(let message):
+            return message
+        case .pathInaccessible(let path):
+            return "Path is not accessible: \(path)"
+        case .permissionDenied(let path):
+            return "Permission denied for path: \(path)"
         }
     }
 }

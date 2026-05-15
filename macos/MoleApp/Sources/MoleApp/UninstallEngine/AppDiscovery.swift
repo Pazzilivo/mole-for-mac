@@ -241,33 +241,7 @@ actor AppDiscovery {
 
     private func createAppInfo(from path: URL) async throws -> AppInfo? {
         let appName = path.lastPathComponent
-        let fallbackBundleId = "unknown.\(appName.replacingOccurrences(of: ".app", with: "").replacingOccurrences(of: " ", with: "-").lowercased())"
-
-        guard let bundleId = await resolveBundleId(for: path) else {
-            // C6 FIX: Use fallback bundle ID instead of throwing error
-            let displayName = await resolveDisplayName(for: path, appName: appName)
-            let version = await getAppVersion(for: path)
-            let metadata = await collectMetadata(for: path)
-
-            let caskName = await brewIntegration.getCaskName(for: path)
-            let isBrewCask = caskName != nil
-
-            let isSystemApp = path.path.starts(with: "/System/")
-            let isBackgroundOnly = await isBackgroundOnly(path)
-
-            return AppInfo(
-                id: fallbackBundleId,
-                name: displayName,
-                path: path,
-                version: version,
-                size: metadata.size,
-                lastUsed: metadata.lastUsed,
-                isBrewCask: isBrewCask,
-                brewCaskName: caskName,
-                isSystemApp: isSystemApp,
-                isBackgroundOnly: isBackgroundOnly
-            )
-        }
+        let bundleId = await resolveBundleId(for: path) ?? "unknown.\(appName.replacingOccurrences(of: ".app", with: ""))"
 
         let displayName = await resolveDisplayName(for: path, appName: appName)
         let version = await getAppVersion(for: path)

@@ -244,14 +244,11 @@ actor ResidualScanner {
     }
 
     private func convertShellPatternToRegex(_ pattern: String) -> String {
-        var regex = pattern
+        // First escape special regex characters (except *)
+        let escapedPattern = NSRegularExpression.escapedPattern(for: pattern)
 
-        // CRITICAL FIX: Escape special regex characters before converting wildcards
-        // This prevents bundle IDs like "com.adobe.Photoshop" from being misinterpreted
-        regex = NSRegularExpression.escapedPattern(for: regex)
-
-        // Convert escaped \* back to .* for wildcard matching
-        regex = regex.replacingOccurrences(of: "\\\\*", with: ".*")
+        // Now convert shell wildcards to regex
+        var regex = escapedPattern.replacingOccurrences(of: "\\*", with: ".*")
 
         // Add anchors
         regex = "^\(regex)$"

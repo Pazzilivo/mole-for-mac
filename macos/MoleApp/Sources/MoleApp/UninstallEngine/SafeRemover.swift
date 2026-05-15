@@ -14,19 +14,12 @@ actor SafeRemover {
     ]
 
     // MARK: - Sensitive Data Patterns
-    // CRITICAL: These patterns must be extremely specific to avoid blocking legitimate uninstall operations
     private static let sensitivePatterns = [
-        // Security credentials (highest priority)
+        // Only exact path matches, not substring matches
         ".ssh", ".gnupg", ".gpg", ".password-store",
-        "keychain", "keychains", ".aws/credentials",
-        ".kube/config", ".docker/config.json",
-
-        // Specific sensitive file types (not general config)
-        ".password", ".token", ".auth", "credentials", "secrets",
-        "Passwords", "Accounts",
-
-        // User data directories (never delete user content)
-        "Documents", "Desktop", "Downloads", "Movies", "Music", "Pictures"
+        "keychain", ".password", ".token", ".auth",
+        "Passwords", "Accounts", "credentials", "secrets",
+        ".aws", ".kube/config"
     ]
 
     // MARK: - System Critical Bundle IDs
@@ -95,10 +88,8 @@ actor SafeRemover {
         let path = url.path.lowercased()
 
         return SafeRemover.sensitivePatterns.contains { pattern in
-            let lowerPattern = pattern.lowercased()
-            // Check if pattern appears as a complete path component, not as substring
-            let pathComponents = path.components(separatedBy: "/")
-            return pathComponents.contains(lowerPattern)
+            let exactPattern = "/\(pattern.lowercased())"
+            return path.hasSuffix(exactPattern) || path.contains(exactPattern + "/")
         }
     }
 

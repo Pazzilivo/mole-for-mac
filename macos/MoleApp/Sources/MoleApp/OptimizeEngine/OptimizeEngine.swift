@@ -320,13 +320,9 @@ actor OptimizeEngine {
                 arguments: ["-r", "cache"]
             )
 
-            // Remove cache directories safely
+            // Remove cache directories
             for path in cachePaths {
-                do {
-                    try await safeRemover.remove(at: URL(fileURLWithPath: path))
-                } catch {
-                    logger.warning("Failed to remove cache at \(path): \(error.localizedDescription)")
-                }
+                try? await safeRemover.remove(at: URL(fileURLWithPath: path))
             }
 
             cacheCleanedKB += totalSizeKB
@@ -418,7 +414,7 @@ actor OptimizeEngine {
         }
 
         do {
-            try await safeRemover.remove(at: URL(fileURLWithPath: savedStatesPath))
+            try? await safeRemover.remove(at: URL(fileURLWithPath: savedStatesPath))
             try? fileManager.createDirectory(atPath: savedStatesPath, withIntermediateDirectories: true)
 
             cacheCleanedKB += totalSizeKB
@@ -473,11 +469,7 @@ actor OptimizeEngine {
 
         do {
             for path in coreDuetPaths {
-                do {
-                    try await safeRemover.remove(at: URL(fileURLWithPath: path))
-                } catch {
-                    logger.warning("Failed to remove CoreDuet cache at \(path): \(error.localizedDescription)")
-                }
+                try? await safeRemover.remove(at: URL(fileURLWithPath: path))
             }
 
             cacheCleanedKB += totalSizeKB
@@ -525,7 +517,7 @@ actor OptimizeEngine {
         }
 
         do {
-            try await safeRemover.remove(at: URL(fileURLWithPath: notificationPath))
+            try? await safeRemover.remove(at: URL(fileURLWithPath: notificationPath))
             try? fileManager.createDirectory(atPath: notificationPath, withIntermediateDirectories: true)
 
             cacheCleanedKB += totalSizeKB
@@ -580,11 +572,7 @@ actor OptimizeEngine {
 
         do {
             for path in mediaAnalysisPaths {
-                do {
-                    try await safeRemover.remove(at: URL(fileURLWithPath: path))
-                } catch {
-                    logger.warning("Failed to remove media analysis cache at \(path): \(error.localizedDescription)")
-                }
+                try? await safeRemover.remove(at: URL(fileURLWithPath: path))
             }
 
             cacheCleanedKB += totalSizeKB
@@ -639,11 +627,7 @@ actor OptimizeEngine {
         do {
             if let globResults = glob(wallpaperPath) {
                 for path in globResults {
-                    do {
-                        try await safeRemover.remove(at: URL(fileURLWithPath: path))
-                    } catch {
-                        logger.warning("Failed to remove wallpaper cache at \(path): \(error.localizedDescription)")
-                    }
+                    try? await safeRemover.remove(at: URL(fileURLWithPath: path))
                 }
             }
 
@@ -1099,12 +1083,8 @@ actor OptimizeEngine {
 
                         // Check if the agent references an app that no longer exists
                         if checkOrphanedLaunchAgent(fullPath) {
-                            do {
-                                try await safeRemover.remove(at: URL(fileURLWithPath: fullPath))
-                                orphanedCount += 1
-                            } catch {
-                                logger.warning("Failed to remove orphaned LaunchAgent at \(fullPath): \(error.localizedDescription)")
-                            }
+                            try? await safeRemover.remove(at: URL(fileURLWithPath: fullPath))
+                            orphanedCount += 1
                         }
                     }
                 }
@@ -1257,55 +1237,27 @@ actor OptimizeEngine {
     }
 
     private func checkOrphanedLaunchAgent(_ path: String) -> Bool {
-        // C10 FIX: Use proper PropertyListSerialization instead of string parsing
-        guard let plistData = try? Data(contentsOf: URL(fileURLWithPath: path)),
-              let plist = try? PropertyListSerialization.propertyList(from: plistData, options: [], format: nil) as? [String: Any] else {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: path)),
+              let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
             return false
         }
 
-        // Check multiple keys that might contain the executable path
-        let executableKeys = ["Program", "ProgramArguments", "Label"]
+        // Extract the executable path from the plist using proper parsing
         var executablePath: String?
-
-        for key in executableKeys {
-            if let value = plist[key] {
-                if key == "ProgramArguments" {
-                    // ProgramArguments is an array, the first element is the executable
-                    if let args = value as? [String], !args.isEmpty {
-                        executablePath = args[0]
-                        break
-                    }
-                } else if key == "Program" {
-                    // Program is a direct string path
-                    if let program = value as? String {
-                        executablePath = program
-                        break
-                    }
-                } else if key == "Label" {
-                    // Label can be used to infer the bundle ID for checking app existence
-                    if let label = value as? String {
-                        // Check if the app with this label still exists
-                        if let dotRange = label.range(of: ".", options: .backwards) {
-                            let appName = String(label[dotRange.upperBound...])
-                            let appPath = "/Applications/\(appName).app"
-                            if !fileManager.fileExists(atPath: appPath) {
-                                // App doesn't exist, but verify executable if we have it
-                                if let program = plist["Program"] as? String {
-                                    return !fileManager.fileExists(atPath: program)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        if let programArguments = plist["ProgramArguments"] as? [String], !programArguments.isEmpty {
+            executablePath = programArguments[0]
+        } else if let program = plist["Program"] as? String {
+            executablePath = program
+        } else if let label = plist["Label"] as? String {
+            // Fallback: try to find executable by label
+            executablePath = "/usr/local/bin/\(label)"
         }
 
-        // If we found an executable path, check if it exists
+        // Check if the executable exists
         if let path = executablePath {
             return !fileManager.fileExists(atPath: path)
         }
 
-        // No executable path found, conservatively assume it's still valid
         return false
     }
 
