@@ -41,12 +41,14 @@ final class DiskCollector: MetricCollector {
 
             // Get APFS container free space for more accurate reading
             let apfsFree = getAPFSContainerFree(mountPath: mount)
-            let (adjustedUsed, adjustedPercent) = if let apfsFree = apfsFree {
-                let adjustedUsed = totalSpace - apfsFree
-                let adjustedPercent = totalSpace > 0 ? (Double(adjustedUsed) / Double(totalSpace)) * 100.0 : 0.0
-                (adjustedUsed, adjustedPercent)
+            let adjustedUsed: UInt64
+            let adjustedPercent: Double
+            if let apfsFree = apfsFree {
+                adjustedUsed = totalSpace - apfsFree
+                adjustedPercent = totalSpace > 0 ? (Double(adjustedUsed) / Double(totalSpace)) * 100.0 : 0.0
             } else {
-                (usedSpace, usedPercent)
+                adjustedUsed = usedSpace
+                adjustedPercent = usedPercent
             }
 
             let disk = DiskStatus(

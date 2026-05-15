@@ -36,7 +36,7 @@ final class DiskScanner {
             path: rootPath,
             overview: true,
             entries: result.entries.map { entry in
-                AnalyzeEntry(name: entry.name, path: entry.path, size: entry.size, isDir: entry.isDir, insight: nil, cleanable: nil, lastAccess: nil)
+                AnalyzeEntry(name: entry.name, path: entry.path, size: entry.size, isDir: entry.isDir)
             },
             largeFiles: result.largeFiles.map { file in
                 AnalyzeFile(name: file.name, path: file.path, size: file.size)
@@ -69,7 +69,7 @@ final class DiskScanner {
             path: path,
             overview: isOverview,
             entries: scanResult.entries.map { entry in
-                AnalyzeEntry(name: entry.name, path: entry.path, size: entry.size, isDir: entry.isDir, insight: nil, cleanable: nil, lastAccess: nil)
+                AnalyzeEntry(name: entry.name, path: entry.path, size: entry.size, isDir: entry.isDir)
             },
             largeFiles: scanResult.largeFiles.map { file in
                 AnalyzeFile(name: file.name, path: file.path, size: file.size)

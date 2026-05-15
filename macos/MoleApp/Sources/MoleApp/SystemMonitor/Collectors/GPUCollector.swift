@@ -34,7 +34,9 @@ final class GPUCollector: MetricCollector {
                 if let gpuService = IOKitHelper.getService(name: "AGXAccelerator") {
                     defer { IOKitHelper.release(gpuService) }
 
-                    if let cores = IOKitHelper.getProperty<Int>(gpuService, key: "gpu_cores_count") ?? IOKitHelper.getProperty<Int>(gpuService, key: "# of cores") {
+                    let gpuCores: Int? = IOKitHelper.getProperty(gpuService, key: "gpu_cores_count")
+                    let altCores: Int? = IOKitHelper.getProperty(gpuService, key: "# of cores")
+                    if let cores = gpuCores ?? altCores {
                         coreCount = cores
                     }
                 }

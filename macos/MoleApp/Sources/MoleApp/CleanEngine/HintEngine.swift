@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 /// Hint Engine - Generates intelligent cleaning recommendations
 /// Ported from lib/clean/hints.sh (824 lines, 21 functions)

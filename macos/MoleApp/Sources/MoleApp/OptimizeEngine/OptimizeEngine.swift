@@ -6,7 +6,12 @@ actor OptimizeEngine {
     private let logger = Logger(subsystem: "com.mole.optimize", category: "OptimizeEngine")
     private let fileManager = FileManager.default
     private let processManager = ProcessManager()
-    private let safeRemover = SafeRemover()
+    private let safeRemover = SafeRemover(
+        configuration: .default,
+        pathValidator: PathValidator(),
+        whitelistManager: WhitelistManager(),
+        protectionManager: ProtectionManager()
+    )
 
     // Optimization state tracking
     private var activeTasks: Set<String> = []

@@ -1322,18 +1322,3 @@ class AppCacheCleaner {
         }
     }
 }
-
-// MARK: - String Extension for Glob Matching
-
-extension String {
-    func matchesGlob(pattern: String) -> Bool {
-        let regexPattern = "^" + pattern
-            .replacingOccurrences(of: ".", with: "\\.")
-            .replacingOccurrences(of: "*", with: ".*")
-            .replacingOccurrences(of: "?", with: ".") + "$"
-
-        guard let regex = try? NSRegularExpression(pattern: regexPattern) else { return false }
-
-        return regex.firstMatch(in: self, range: NSRange(self.startIndex..., in: self)) != nil
-    }
-}

@@ -19,8 +19,8 @@ final class ThermalCollector: MetricCollector {
             defer { IOKitHelper.release(cpuService) }
 
             // Try to get CPU temperature
-            if let temp = IOKitHelper.getProperty<Int>(cpuService, key: "temperature") {
-                cpuTemp = Double(temp) / 100.0 // Convert to Celsius
+            if let temp: Int = IOKitHelper.getProperty(cpuService, key: "temperature") {
+                cpuTemp = Double(temp) / 100.0
             }
         }
 
@@ -28,8 +28,8 @@ final class ThermalCollector: MetricCollector {
         if let gpuService = IOKitHelper.getService(name: "IOAccelerator") {
             defer { IOKitHelper.release(gpuService) }
 
-            if let temp = IOKitHelper.getProperty<Int>(gpuService, key: "temperature") {
-                gpuTemp = Double(temp) / 100.0 // Convert to Celsius
+            if let temp: Int = IOKitHelper.getProperty(gpuService, key: "temperature") {
+                gpuTemp = Double(temp) / 100.0
             }
         }
 
@@ -50,7 +50,7 @@ final class ThermalCollector: MetricCollector {
             defer { IOKitHelper.release(smcService) }
 
             // Try to get fan count and speed
-            if let fans = IOKitHelper.getProperty<[String: Any]>(smcService, key: "FAN") {
+            if let fans: [String: Any] = IOKitHelper.getProperty(smcService, key: "FAN") {
                 fanCount = fans.count
                 // Get current fan speed (first fan)
                 if let fanData = fans.first?.value as? [String: Any],

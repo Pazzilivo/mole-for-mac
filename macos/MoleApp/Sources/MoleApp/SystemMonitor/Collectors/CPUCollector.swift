@@ -1,4 +1,5 @@
 import Foundation
+import MachO
 
 final class CPUCollector: MetricCollector {
     typealias Output = CPUStatus
@@ -8,8 +9,8 @@ final class CPUCollector: MetricCollector {
 
     func collect() async throws -> CPUStatus {
         // Get core counts
-        let coreCount = (SysctlHelper.getInt32("hw.physicalcpu") ?? 0) as Int
-        let logicalCPU = (SysctlHelper.getInt32("hw.logicalcpu") ?? 0) as Int
+        let coreCount = Int(SysctlHelper.getInt32("hw.physicalcpu") ?? 0)
+        let logicalCPU = Int(SysctlHelper.getInt32("hw.logicalcpu") ?? 0)
 
         // Get P/E core counts (Apple Silicon)
         var pCoreCount: Int = 0
@@ -94,7 +95,7 @@ final class CPUCollector: MetricCollector {
         defer {
             if let info = cpuInfo {
                 vm_deallocate(
-                    mach_task_self(),
+                    mach_task_self_,
                     vm_address_t(bitPattern: Int(bitPattern: info)),
                     vm_size_t(Int(numCpuInfo) * MemoryLayout<Int32>.size)
                 )

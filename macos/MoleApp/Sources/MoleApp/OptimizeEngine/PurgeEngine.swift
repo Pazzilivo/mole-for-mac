@@ -6,11 +6,16 @@ actor PurgeEngine {
     private let logger = Logger(subsystem: "com.mole.purge", category: "PurgeEngine")
     private let fileManager = FileManager.default
     private let processManager = ProcessManager()
-    private let safeRemover = SafeRemover()
+    private let safeRemover = SafeRemover(
+        configuration: .default,
+        pathValidator: PathValidator(),
+        whitelistManager: WhitelistManager(),
+        protectionManager: ProtectionManager()
+    )
 
     // Purge state tracking
     private var customPaths: [String] = []
-    private var sudoAvailable = false
+    private nonisolated(unsafe) var sudoAvailable = false
 
     /// Result type for purge operations
     struct PurgeResult: Sendable {
