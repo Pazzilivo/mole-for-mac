@@ -302,8 +302,7 @@ actor DevToolsCleaner {
 
         let cargoPaths = [
             "~/.cargo/registry",
-            "~/.cargo/git",
-            "~/.cargo/bin"
+            "~/.cargo/git"
         ]
 
         for path in cargoPaths {
@@ -391,22 +390,85 @@ actor DevToolsCleaner {
     func scanHomebrewCaches() async -> [CleanItem] {
         var items: [CleanItem] = []
 
-        let homebrewPaths = [
-            "~/Library/Caches/Homebrew",
-            "/usr/local/var/homebrew",
-            "/opt/homebrew/var/homebrew"
+        // Find brew executable
+        let brewPaths = [
+            "/opt/homebrew/bin/brew",  // Apple Silicon Homebrew
+            "/usr/local/bin/brew",      // Intel Homebrew
+            "/home/linuxbrew/.linuxbrew/bin/brew" // Linux Homebrew
         ]
 
-        for path in homebrewPaths {
+        var brewExecutable: String?
+        for path in brewPaths {
             if fileManager.fileExists(atPath: path) {
-                if let cleanItem = await createCleanItemIfNeeded(
-                    path: path,
-                    category: .developmentTools,
-                    description: "Homebrew cache"
-                ) {
-                    items.append(cleanItem)
+                brewExecutable = path
+                break
+            }
+        }
+
+        // If not found in common paths, try 'which brew'
+        if brewExecutable == nil {
+            brewExecutable = await findExecutable("brew")
+        }
+
+        guard let executable = brewExecutable else {
+            // If brew not found, fall back to scanning cache directories directly
+            let homebrewCachePaths = [
+                "~/Library/Caches/Homebrew",
+                "/usr/local/var/homebrew",
+                "/opt/homebrew/var/homebrew"
+            ]
+
+            for path in homebrewCachePaths {
+                let expandedPath = NSString(string: path).expandingTildeInPath
+                if fileManager.fileExists(atPath: expandedPath) {
+                    if let cleanItem = await createCleanItemIfNeeded(
+                        path: expandedPath,
+                        category: .developmentTools,
+                        description: "Homebrew cache"
+                    ) {
+                        items.append(cleanItem)
+                    }
                 }
             }
+
+            return items
+        }
+
+        // Use brew cleanup --prune=all --dry-run to get cache information
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: executable)
+        task.arguments = ["cleanup", "--prune=all", "--dry-run"]
+
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = Pipe()
+
+        do {
+            try task.run()
+            task.waitUntilExit()
+
+            // Since brew cleanup doesn't give us detailed cache size info,
+            // we'll still scan the cache directory for size information
+            let homebrewCachePaths = [
+                "~/Library/Caches/Homebrew",
+                "/usr/local/var/homebrew",
+                "/opt/homebrew/var/homebrew"
+            ]
+
+            for path in homebrewCachePaths {
+                let expandedPath = NSString(string: path).expandingTildeInPath
+                if fileManager.fileExists(atPath: expandedPath) {
+                    if let cleanItem = await createCleanItemIfNeeded(
+                        path: expandedPath,
+                        category: .developmentTools,
+                        description: "Homebrew cache (cleanable with brew cleanup)"
+                    ) {
+                        items.append(cleanItem)
+                    }
+                }
+            }
+        } catch {
+            // If brew command fails, fall back to directory scanning
         }
 
         return items
@@ -594,24 +656,67 @@ actor DevToolsCleaner {
     func scanNixStore() async -> [CleanItem] {
         var items: [CleanItem] = []
 
-        let nixPaths = [
-            "/nix/var/nix/gcroots/auto",
-            "/nix/var/nix/profiles"
-        ]
+        // Check if nix-collect-garbage command exists
+        guard let nixPath = await findExecutable("nix-collect-garbage") else {
+            return items
+        }
 
-        for path in nixPaths {
-            if fileManager.fileExists(atPath: path) {
-                if let cleanItem = await createCleanItemIfNeeded(
-                    path: path,
-                    category: .developmentTools,
-                    description: "Nix store"
-                ) {
-                    items.append(cleanItem)
-                }
-            }
+        // Instead of directly deleting gcroots/profiles directories (which can break nix),
+        // we'll use nix-collect-garbage -d command to safely clean the nix store
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: nixPath)
+        task.arguments = ["--dry-run"] // Dry run to calculate potential space
+
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = Pipe()
+
+        do {
+            try task.run()
+            task.waitUntilExit()
+
+            // Since nix-collect-garbage doesn't give us size info directly,
+            // we'll return a procedural item that will use the command during cleanup
+            let nixItem = CleanItem(
+                path: "/nix/var/nix/store", // This is just a placeholder path
+                size: 0, // Size cannot be determined safely without actually running gc
+                type: .directory,
+                category: .developmentTools,
+                riskLevel: .medium, // Nix GC is generally safe but can affect package availability
+                lastAccessed: nil,
+                isProtected: false,
+                isWhitelisted: false
+            )
+            items.append(nixItem)
+        } catch {
+            // If nix-collect-garbage fails, return empty
         }
 
         return items
+    }
+
+    private func findExecutable(_ name: String) async -> String? {
+        let task = Process()
+        task.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        task.arguments = [name]
+
+        let pipe = Pipe()
+        task.standardOutput = pipe
+        task.standardError = Pipe()
+
+        do {
+            try task.run()
+            task.waitUntilExit()
+
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            if let output = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !output.isEmpty {
+                return output
+            }
+        } catch {
+            return nil
+        }
+
+        return nil
     }
 
     func scanAwsCli() async -> [CleanItem] {
@@ -633,10 +738,11 @@ actor DevToolsCleaner {
     func scanGcloudCli() async -> [CleanItem] {
         var items: [CleanItem] = []
 
-        let gcloudPath = NSString(string: "~/.config/gcloud").expandingTildeInPath
+        // Only clean the cache directory, not the entire gcloud config which contains auth credentials
+        let gcloudCachePath = NSString(string: "~/.config/gcloud/.cache").expandingTildeInPath
 
         if let cleanItem = await createCleanItemIfNeeded(
-            path: gcloudPath,
+            path: gcloudCachePath,
             category: .developmentTools,
             description: "Google Cloud CLI cache"
         ) {
@@ -649,10 +755,11 @@ actor DevToolsCleaner {
     func scanAzCli() async -> [CleanItem] {
         var items: [CleanItem] = []
 
-        let azurePath = NSString(string: "~/.azure").expandingTildeInPath
+        // Only clean the cache directory, not the entire Azure CLI config which contains login tokens
+        let azureCachePath = NSString(string: "~/.azure/cli.cache").expandingTildeInPath
 
         if let cleanItem = await createCleanItemIfNeeded(
-            path: azurePath,
+            path: azureCachePath,
             category: .developmentTools,
             description: "Azure CLI cache"
         ) {
@@ -1023,7 +1130,7 @@ actor DevToolsCleaner {
         guard let enumerator = fileManager.enumerator(
             at: URL(fileURLWithPath: path),
             includingPropertiesForKeys: [.fileSizeKey],
-            options: [.skipsHiddenFiles]
+            options: []
         ) else {
             return 0
         }
@@ -1043,8 +1150,35 @@ actor DevToolsCleaner {
     }
 
     private func getGoEnvVar(_ key: String) async -> String? {
+        // Try to find Go executable dynamically instead of hardcoding
+        let goPaths = [
+            "/opt/homebrew/bin/go",  // Apple Silicon Homebrew
+            "/usr/local/bin/go",      // Intel Homebrew
+            "/usr/local/go/bin/go",   // Manual installation
+            "/usr/bin/go",            // System Go
+            "~/.go/bin/go"            // User Go installation
+        ]
+
+        var goExecutable: String?
+        for path in goPaths {
+            let expandedPath = NSString(string: path).expandingTildeInPath
+            if fileManager.fileExists(atPath: expandedPath) {
+                goExecutable = expandedPath
+                break
+            }
+        }
+
+        // If not found in common paths, try 'which go'
+        if goExecutable == nil {
+            goExecutable = await findExecutable("go")
+        }
+
+        guard let executable = goExecutable else {
+            return nil
+        }
+
         let task = Process()
-        task.executableURL = URL(fileURLWithPath: "/usr/local/bin/go")
+        task.executableURL = URL(fileURLWithPath: executable)
         task.arguments = ["env", key]
 
         let pipe = Pipe()
