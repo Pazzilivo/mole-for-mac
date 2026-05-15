@@ -4,7 +4,7 @@ import Foundation
 actor ResidualScanner {
 
     // MARK: - Dependencies
-    private let safeRemover = SafeRemover()
+    private let safeRemover = UninstallSafeRemover()
 
     // MARK: - Scan Patterns
     private let scanPatterns: [ResidualPattern] = [

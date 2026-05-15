@@ -5,7 +5,7 @@ actor AppDiscovery {
 
     // MARK: - Dependencies
     private let brewIntegration = BrewIntegration()
-    private let safeRemover = SafeRemover()
+    private let safeRemover = UninstallSafeRemover()
 
     // MARK: - Constants
     private let searchPaths = [

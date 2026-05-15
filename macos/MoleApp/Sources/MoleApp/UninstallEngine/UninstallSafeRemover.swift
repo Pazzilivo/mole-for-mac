@@ -1,7 +1,7 @@
 import Foundation
 
 // MARK: - Safe File Removal Utility
-actor SafeRemover {
+actor UninstallSafeRemover {
 
     // MARK: - Protected Paths
     private static let protectedPaths = [
@@ -87,7 +87,7 @@ actor SafeRemover {
     func containsSensitiveData(at url: URL) -> Bool {
         let path = url.path.lowercased()
 
-        return SafeRemover.sensitivePatterns.contains { pattern in
+        return UninstallSafeRemover.sensitivePatterns.contains { pattern in
             let exactPattern = "/\(pattern.lowercased())"
             return path.hasSuffix(exactPattern) || path.contains(exactPattern + "/")
         }
@@ -100,14 +100,14 @@ actor SafeRemover {
             return true
         }
 
-        return SafeRemover.systemCriticalBundles.contains(bundleId)
+        return UninstallSafeRemover.systemCriticalBundles.contains(bundleId)
     }
 
     /// Check if a path is protected
     func isProtectedPath(_ url: URL) -> Bool {
         let path = url.path
 
-        return SafeRemover.protectedPaths.contains { pattern in
+        return UninstallSafeRemover.protectedPaths.contains { pattern in
             if pattern.hasSuffix("/*") {
                 let basePath = String(pattern.dropLast(2))
                 return path.hasPrefix(basePath) && path != basePath

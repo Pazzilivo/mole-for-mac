@@ -7,7 +7,7 @@ actor UninstallEngine {
     private let appDiscovery = AppDiscovery()
     private let residualScanner = ResidualScanner()
     private let batchUninstaller = BatchUninstaller()
-    private let safeRemover = SafeRemover()
+    private let safeRemover = UninstallSafeRemover()
 
     // MARK: - Cache Management
     private var metadataCache: AppMetadataCache?
