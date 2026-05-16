@@ -1,6 +1,6 @@
 #!/bin/bash
 # Test runner for Mole.
-# Runs unit, Go, and integration tests.
+# Runs unit and integration tests.
 # Exits non-zero on failures.
 
 set -euo pipefail
@@ -14,13 +14,9 @@ cd "$PROJECT_ROOT"
 export MOLE_TEST_NO_AUTH=1
 
 TEST_SYSTEM_STUB_DIR="$(mktemp -d "${TMPDIR:-/tmp}/mole-test-stubs.XXXXXX")"
-TEST_GO_HELPER_DIR=""
 # shellcheck disable=SC2329  # Invoked by trap.
 cleanup_test_stubs() {
     rm -rf "$TEST_SYSTEM_STUB_DIR"
-    if [[ -n "$TEST_GO_HELPER_DIR" ]]; then
-        rm -rf "$TEST_GO_HELPER_DIR"
-    fi
 }
 trap cleanup_test_stubs EXIT
 
@@ -89,37 +85,6 @@ report_unit_result() {
 
 enforce_timeout_dependency_in_ci
 
-GO_TEST_CACHE="${MOLE_GO_TEST_CACHE:-/tmp/mole-go-build-cache}"
-export MOLE_GO_TEST_CACHE="$GO_TEST_CACHE"
-
-test_selection_needs_go_helpers() {
-    local test_file
-    for test_file in "$@"; do
-        case "$test_file" in
-            tests | ./tests | */tests | tests/cli.bats | ./tests/cli.bats | */tests/cli.bats)
-                return 0
-                ;;
-        esac
-    done
-    return 1
-}
-
-prepare_go_test_helpers() {
-    command -v go > /dev/null 2>&1 || return 0
-
-    TEST_GO_HELPER_DIR="$(mktemp -d "${TMPDIR:-/tmp}/mole-go-helpers.XXXXXX")"
-    mkdir -p "$GO_TEST_CACHE"
-
-    if GOCACHE="$GO_TEST_CACHE" go build -o "$TEST_GO_HELPER_DIR/analyze-go" ./cmd/analyze > /dev/null 2>&1 &&
-        GOCACHE="$GO_TEST_CACHE" go build -o "$TEST_GO_HELPER_DIR/status-go" ./cmd/status > /dev/null 2>&1; then
-        export MOLE_TEST_ANALYZE_BIN="$TEST_GO_HELPER_DIR/analyze-go"
-        export MOLE_TEST_STATUS_BIN="$TEST_GO_HELPER_DIR/status-go"
-    else
-        rm -rf "$TEST_GO_HELPER_DIR"
-        TEST_GO_HELPER_DIR=""
-    fi
-}
-
 echo "1. Linting test scripts..."
 if command -v shellcheck > /dev/null 2>&1; then
     TEST_FILES=()
@@ -184,9 +149,6 @@ if command -v bats > /dev/null 2>&1 && [ -d "tests" ]; then
         else
             set -- tests
         fi
-    fi
-    if test_selection_needs_go_helpers "$@"; then
-        prepare_go_test_helpers
     fi
     use_color=false
     if [[ -t 1 && "${TERM:-}" != "dumb" ]]; then
@@ -302,23 +264,7 @@ else
 fi
 echo ""
 
-echo "3. Running Go tests..."
-if command -v go > /dev/null 2>&1; then
-    mkdir -p "$GO_TEST_CACHE"
-    if GOCACHE="$GO_TEST_CACHE" go build ./... > /dev/null 2>&1 &&
-        GOCACHE="$GO_TEST_CACHE" go vet ./cmd/... > /dev/null 2>&1 &&
-        GOCACHE="$GO_TEST_CACHE" go test ./cmd/... > /dev/null 2>&1; then
-        printf "${GREEN}${ICON_SUCCESS} Go tests passed${NC}\n"
-    else
-        printf "${RED}${ICON_ERROR} Go tests failed${NC}\n"
-        ((FAILED++))
-    fi
-else
-    printf "${YELLOW}${ICON_WARNING} Go not installed, skipping Go tests${NC}\n"
-fi
-echo ""
-
-echo "4. Testing module loading..."
+echo "3. Testing module loading..."
 if bash -c 'source lib/core/common.sh && echo "OK"' > /dev/null 2>&1; then
     printf "${GREEN}${ICON_SUCCESS} Module loading passed${NC}\n"
 else
@@ -327,7 +273,7 @@ else
 fi
 echo ""
 
-echo "5. Running integration tests..."
+echo "4. Running integration tests..."
 # Quick syntax check for main scripts
 if bash -n mole && bash -n bin/clean.sh && bash -n bin/optimize.sh; then
     printf "${GREEN}${ICON_SUCCESS} Integration tests passed${NC}\n"
@@ -337,7 +283,7 @@ else
 fi
 echo ""
 
-echo "6. Testing installation..."
+echo "5. Testing installation..."
 # Installation script is macOS-specific; skip this test on non-macOS platforms
 if [[ "$(uname -s)" != "Darwin" ]]; then
     printf "${YELLOW}${ICON_WARNING} Installation test skipped (non-macOS)${NC}\n"

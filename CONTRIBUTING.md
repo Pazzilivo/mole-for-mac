@@ -4,10 +4,7 @@
 
 ```bash
 # Install development tools
-brew install shfmt shellcheck bats-core golangci-lint
-
-# Install goimports for better Go formatting
-go install golang.org/x/tools/cmd/goimports@latest
+brew install shfmt shellcheck bats-core
 
 # Install pre-commit hook (runs format/lint checks on every commit)
 git config core.hooksPath .githooks
@@ -133,45 +130,6 @@ Format: `[MODULE_NAME] message` output to stderr.
 - macOS 10.14 or newer, works on Intel and Apple Silicon
 - Default macOS Bash 3.2+ plus administrator privileges for cleanup tasks
 - Install Command Line Tools with `xcode-select --install` for curl, tar, and related utilities
-- Go 1.24+ is required to build the `mo status` or `mo analyze` TUI binaries locally.
-
-## Go Components
-
-`mo status` and `mo analyze` use Go with Bubble Tea for interactive dashboards.
-
-**Code organization:**
-
-- Each module split into focused files by responsibility
-- `cmd/analyze/` - Disk analyzer with 7 files under 500 lines each
-- `cmd/status/` - System monitor with metrics split into 11 domain files
-
-**Development workflow:**
-
-- Format code with `gofmt -w ./cmd/...`
-- Run `go vet ./cmd/...` to check for issues
-- Build with `go build ./...` to verify all packages compile
-
-**Building Go Binaries:**
-
-For local development:
-
-```bash
-# Build binaries for current architecture
-make build
-
-# Or run directly without building
-go run ./cmd/analyze
-go run ./cmd/status
-```
-
-For releases, GitHub Actions builds architecture-specific binaries automatically.
-
-**Guidelines:**
-
-- Keep files focused on single responsibility
-- Extract constants instead of magic numbers
-- Use context for timeout control on external commands
-- Add comments explaining **why** something is done, not just **what** is being done.
 
 ## Pull Requests
 
