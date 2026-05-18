@@ -1,0 +1,43 @@
+name: macOS App Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish macOS app
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+
+      - name: Build app
+        run: ./scripts/build-macos-app.sh
+
+      - name: Package app
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          cd build/macos
+          /usr/bin/ditto -c -k --keepParent Mole.app "Mole-${tag}.zip"
+          cp "Mole-${tag}.zip" "Mole-${version}.zip"
+          shasum -a 256 "Mole-${tag}.zip" "Mole-${version}.zip" > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v2
+        with:
+          name: ${{ github.ref_name }}
+          body: |
+            - Fix macOS app builds so the binary targets macOS 13.0 instead of inheriting the newest SDK default.
+            - Replace macOS 14-only SwiftUI styling with macOS 13-compatible views.
+            - Add CLI fallbacks for status and analyze when legacy Go helper binaries are not bundled.
+          files: |
+            build/macos/Mole-*.zip
+            build/macos/SHA256SUMS
