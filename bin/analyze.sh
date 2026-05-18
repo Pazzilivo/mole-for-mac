@@ -1,7 +1,6 @@
 #!/bin/bash
 # Mole - Analyze command.
-# Runs the Go disk analyzer UI.
-# Uses bundled analyze-go binary.
+# Shows disk usage with a native fallback.
 
 set -euo pipefail
 
@@ -11,5 +10,14 @@ if [[ -x "$GO_BIN" ]]; then
     exec "$GO_BIN" "$@"
 fi
 
-echo "Bundled analyzer binary not found. Please reinstall Mole or run mo update to restore it." >&2
-exit 1
+target="${1:-$HOME}"
+if [[ ! -d "$target" ]]; then
+    printf 'Analyze target is not a directory: %s\n' "$target" >&2
+    exit 2
+fi
+
+printf 'Mole Analyze\n'
+printf '%s\n' '------------'
+printf 'Target: %s\n\n' "$target"
+printf 'Largest direct children:\n'
+du -xhd 1 "$target" 2> /dev/null | sort -hr | head -20

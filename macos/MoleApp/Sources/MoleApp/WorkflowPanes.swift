@@ -1,5 +1,7 @@
 import SwiftUI
 
+private let compatiblePaneFill = Color.secondary.opacity(0.08)
+
 struct CleanPane: View {
     @EnvironmentObject private var model: MoleAppModel
     @State private var showCleanConfirmation = false
@@ -240,7 +242,7 @@ private struct CleanRiskSummary: View {
             }
         }
         .padding(12)
-        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .background(compatiblePaneFill, in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -319,7 +321,7 @@ private struct CleanCategoryDisclosure: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .background(compatiblePaneFill, in: RoundedRectangle(cornerRadius: 8))
     }
 }
 

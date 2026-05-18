@@ -37,7 +37,23 @@ copy_path() {
     fi
 }
 
+copy_tracked_tree() {
+    local src_dir="$1"
+    local dst_dir="$2"
+
+    mkdir -p "$dst_dir"
+    if git -C "$PROJECT_ROOT" rev-parse --is-inside-work-tree > /dev/null 2>&1; then
+        while IFS= read -r -d '' rel; do
+            local rel_dst="${rel#"$src_dir"/}"
+            copy_path "$PROJECT_ROOT/$rel" "$dst_dir/$rel_dst"
+        done < <(git -C "$PROJECT_ROOT" ls-files -z -- "$src_dir")
+    else
+        copy_path "$PROJECT_ROOT/$src_dir" "$dst_dir"
+    fi
+}
+
 require swiftc
+require xcrun
 require plutil
 require ditto
 
@@ -57,10 +73,26 @@ if [[ ${#swift_sources[@]} -eq 0 ]]; then
     exit 1
 fi
 
-swiftc -parse-as-library -O "${swift_sources[@]}" -o "$MACOS_DIR/Mole"
+MACOS_DEPLOYMENT_TARGET="${MACOS_DEPLOYMENT_TARGET:-13.0}"
+export MACOSX_DEPLOYMENT_TARGET="$MACOS_DEPLOYMENT_TARGET"
+SDKROOT="$(xcrun --sdk macosx --show-sdk-path)"
+HOST_ARCH="$(uname -m)"
+SWIFT_TARGET="${MOLE_SWIFT_TARGET:-${HOST_ARCH}-apple-macosx${MACOS_DEPLOYMENT_TARGET}}"
+
+log "Using Swift target $SWIFT_TARGET"
+swiftc \
+    -parse-as-library \
+    -O \
+    -sdk "$SDKROOT" \
+    -target "$SWIFT_TARGET" \
+    "${swift_sources[@]}" \
+    -o "$MACOS_DIR/Mole"
 
 log "Copying app metadata..."
 copy_path "$APP_SRC/Info.plist" "$CONTENTS_DIR/Info.plist"
+if [[ -x /usr/libexec/PlistBuddy ]]; then
+    /usr/libexec/PlistBuddy -c "Set :LSMinimumSystemVersion $MACOS_DEPLOYMENT_TARGET" "$CONTENTS_DIR/Info.plist"
+fi
 plutil -lint "$CONTENTS_DIR/Info.plist" > /dev/null
 
 log "Copying app icon..."
@@ -69,8 +101,8 @@ copy_path "$APP_RESOURCES/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
 log "Bundling Mole runtime..."
 copy_path "$PROJECT_ROOT/mole" "$RUNTIME_DIR/mole"
 copy_path "$PROJECT_ROOT/mo" "$RUNTIME_DIR/mo"
-copy_path "$PROJECT_ROOT/bin" "$RUNTIME_DIR/bin"
-copy_path "$PROJECT_ROOT/lib" "$RUNTIME_DIR/lib"
+copy_tracked_tree "bin" "$RUNTIME_DIR/bin"
+copy_tracked_tree "lib" "$RUNTIME_DIR/lib"
 copy_path "$PROJECT_ROOT/LICENSE" "$RUNTIME_DIR/LICENSE"
 copy_path "$PROJECT_ROOT/README.md" "$RUNTIME_DIR/README.md"
 

@@ -1,5 +1,7 @@
 import SwiftUI
 
+private let compatibleCardFill = Color.secondary.opacity(0.08)
+
 enum AppSection: String, CaseIterable, Identifiable {
     case overview = "Overview"
     case clean = "Clean"
@@ -214,7 +216,7 @@ struct HealthScoreCard: View {
         }
         .frame(maxWidth: .infinity)
         .padding(20)
-        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 10))
+        .background(compatibleCardFill, in: RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -297,7 +299,7 @@ struct MetricCardRow: View {
             }
         }
         .padding(12)
-        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 8))
+        .background(compatibleCardFill, in: RoundedRectangle(cornerRadius: 8))
     }
 }
 
@@ -330,7 +332,7 @@ struct DiskList: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                .background(compatibleCardFill, in: RoundedRectangle(cornerRadius: 8))
             }
         }
     }
@@ -355,7 +357,7 @@ struct ProcessList: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 8))
+                .background(compatibleCardFill, in: RoundedRectangle(cornerRadius: 8))
             }
         }
     }
@@ -547,7 +549,7 @@ struct UninstallPane: View {
             } message: {
                 Text("This will move \(selectedApp?.name ?? "the app") and its data to Trash. This action can be undone from Finder.")
             }
-            .onChange(of: model.uninstallState) { _, newState in
+            .onChange(of: model.uninstallState) { newState in
                 if newState == .idle || newState == .failed("") {
                     selectedApp = nil
                 }
@@ -725,7 +727,7 @@ struct MetricStrip: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.fill.quaternary, in: RoundedRectangle(cornerRadius: 10))
+        .background(compatibleCardFill, in: RoundedRectangle(cornerRadius: 10))
     }
 }
 
