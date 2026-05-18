@@ -14,7 +14,7 @@ usage() {
 Usage: ./scripts/check.sh [--format|--no-format]
 
 Options:
-  --format     Apply formatting fixes only, shfmt, gofmt
+  --format     Apply formatting fixes only, shfmt
   --no-format  Skip formatting and run checks only
   --help     Show this help
 EOF
@@ -74,18 +74,6 @@ if [[ "$MODE" == "format" ]]; then
         exit 1
     fi
 
-    if command -v goimports > /dev/null 2>&1; then
-        echo -e "${YELLOW}Formatting Go code, goimports...${NC}"
-        goimports -w -local github.com/tw93/Mole ./cmd
-        echo -e "${GREEN}${ICON_SUCCESS} Go formatting complete${NC}\n"
-    elif command -v go > /dev/null 2>&1; then
-        echo -e "${YELLOW}Formatting Go code, gofmt...${NC}"
-        gofmt -w ./cmd
-        echo -e "${GREEN}${ICON_SUCCESS} Go formatting complete${NC}\n"
-    else
-        echo -e "${YELLOW}${ICON_WARNING} go not installed, skipping gofmt${NC}\n"
-    fi
-
     echo -e "${GREEN}=== Format Completed ===${NC}"
     exit 0
 fi
@@ -98,43 +86,9 @@ if [[ "$MODE" != "check" ]]; then
     else
         echo -e "${YELLOW}${ICON_WARNING} shfmt not installed, skipping${NC}\n"
     fi
-
-    if command -v goimports > /dev/null 2>&1; then
-        echo -e "${YELLOW}2. Formatting Go code, goimports...${NC}"
-        goimports -w -local github.com/tw93/Mole ./cmd
-        echo -e "${GREEN}${ICON_SUCCESS} Go formatting applied${NC}\n"
-    elif command -v go > /dev/null 2>&1; then
-        echo -e "${YELLOW}2. Formatting Go code, gofmt...${NC}"
-        gofmt -w ./cmd
-        echo -e "${GREEN}${ICON_SUCCESS} Go formatting applied${NC}\n"
-    fi
 fi
 
-echo -e "${YELLOW}3. Running Go linters...${NC}"
-if command -v golangci-lint > /dev/null 2>&1; then
-    if ! golangci-lint config verify; then
-        echo -e "${RED}${ICON_ERROR} golangci-lint config invalid${NC}\n"
-        exit 1
-    fi
-    if golangci-lint run ./cmd/...; then
-        echo -e "${GREEN}${ICON_SUCCESS} golangci-lint passed${NC}\n"
-    else
-        echo -e "${RED}${ICON_ERROR} golangci-lint failed${NC}\n"
-        exit 1
-    fi
-elif command -v go > /dev/null 2>&1; then
-    echo -e "${YELLOW}${ICON_WARNING} golangci-lint not installed, falling back to go vet${NC}"
-    if go vet ./cmd/...; then
-        echo -e "${GREEN}${ICON_SUCCESS} go vet passed${NC}\n"
-    else
-        echo -e "${RED}${ICON_ERROR} go vet failed${NC}\n"
-        exit 1
-    fi
-else
-    echo -e "${YELLOW}${ICON_WARNING} Go not installed, skipping Go checks${NC}\n"
-fi
-
-echo -e "${YELLOW}4. Running ShellCheck...${NC}"
+echo -e "${YELLOW}3. Running ShellCheck...${NC}"
 if command -v shellcheck > /dev/null 2>&1; then
     if shellcheck mole bin/*.sh lib/*/*.sh scripts/*.sh; then
         echo -e "${GREEN}${ICON_SUCCESS} ShellCheck passed${NC}\n"
@@ -146,7 +100,7 @@ else
     echo -e "${YELLOW}${ICON_WARNING} shellcheck not installed, skipping${NC}\n"
 fi
 
-echo -e "${YELLOW}5. Running syntax check...${NC}"
+echo -e "${YELLOW}4. Running syntax check...${NC}"
 if ! bash -n mole; then
     echo -e "${RED}${ICON_ERROR} Syntax check failed, mole${NC}\n"
     exit 1
@@ -165,7 +119,7 @@ find lib -name "*.sh" | while read -r script; do
 done
 echo -e "${GREEN}${ICON_SUCCESS} Syntax check passed${NC}\n"
 
-echo -e "${YELLOW}6. Checking optimizations...${NC}"
+echo -e "${YELLOW}5. Checking optimizations...${NC}"
 OPTIMIZATION_SCORE=0
 TOTAL_CHECKS=0
 
