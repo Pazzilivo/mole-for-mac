@@ -915,27 +915,39 @@ final class MoleAppModel: ObservableObject {
     func checkForUpdates() async {
         updateState = .loading
         do {
-            let checkURL = URL(string: "https://github.com/Pazzilivo/mole-for-mac/releases/latest")!
-            var request = URLRequest(url: checkURL)
+            // Use GitHub API to get exact release info (asset names, download URLs)
+            let apiURL = URL(string: "https://api.github.com/repos/Pazzilivo/mole-for-mac/releases/latest")!
+            var request = URLRequest(url: apiURL)
             request.setValue("Mole-macOS/\(currentVersion)", forHTTPHeaderField: "User-Agent")
-            let (_, response) = try await URLSession.shared.data(for: request)
-            guard let finalURL = response.url?.absoluteString,
-                  finalURL.contains("/tag/") else {
-                updateState = .idle
+            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+            let (data, _) = try await URLSession.shared.data(for: request)
+
+            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let tagName = json["tag_name"] as? String else {
+                updateState = .failed("Update check failed: unexpected API response")
                 return
             }
-            let tag = finalURL.components(separatedBy: "/tag/").last ?? ""
-            let remote = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
+
+            let remote = tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName
             latestVersion = remote
 
-            if remote.compare(currentVersion, options: .numeric) == .orderedDescending {
-                updateDownloadURL = "https://github.com/Pazzilivo/mole-for-mac/releases/download/\(tag)/Mole-\(remote).zip"
-                updateState = .ready
-            } else {
+            guard remote.compare(currentVersion, options: .numeric) == .orderedDescending else {
                 latestVersion = ""
                 updateDownloadURL = ""
                 updateState = .idle
+                return
             }
+
+            // Find the zip asset download URL from the release assets
+            if let assets = json["assets"] as? [[String: Any]],
+               let zipAsset = assets.first(where: { ($0["name"] as? String)?.hasSuffix(".zip") == true }),
+               let downloadURL = zipAsset["browser_download_url"] as? String {
+                updateDownloadURL = downloadURL
+            } else {
+                // Fallback: construct URL using tag name (matches zip naming convention)
+                updateDownloadURL = "https://github.com/Pazzilivo/mole-for-mac/releases/download/\(tagName)/Mole-\(tagName).zip"
+            }
+            updateState = .ready
         } catch {
             updateState = .failed("Update check failed: \(error.localizedDescription)")
         }
