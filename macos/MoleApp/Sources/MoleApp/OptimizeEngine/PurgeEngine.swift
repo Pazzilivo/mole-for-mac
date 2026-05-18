@@ -6,7 +6,10 @@ actor PurgeEngine {
     private let logger = Logger(subsystem: "com.mole.purge", category: "PurgeEngine")
     private let fileManager = FileManager.default
     private let processManager = ProcessManager()
-    private let safeRemover = SafeRemover()
+    // Simple file removal helper (SafeRemover requires CleanEngine dependencies)
+    private func removeItem(at url: URL) {
+        try? fileManager.removeItem(at: url)
+    }
 
     // Purge state tracking
     private var customPaths: [String] = []
@@ -60,18 +63,14 @@ actor PurgeEngine {
 
     /// Check if sudo is available without password prompt
     private func checkSudoAvailability() {
-        Task.detached {
+        Task {
             do {
-                let result = try await self.processManager.executeWithSudoOutput(command: "true", arguments: [])
-                await MainActor.run {
-                    self.sudoAvailable = true
-                    self.logger.info("Sudo is available without password")
-                }
+                _ = try await self.processManager.executeWithSudoOutput(command: "true", arguments: [])
+                self.sudoAvailable = true
+                self.logger.info("Sudo is available without password")
             } catch {
-                await MainActor.run {
-                    self.sudoAvailable = false
-                    self.logger.warning("Sudo requires password or is not available")
-                }
+                self.sudoAvailable = false
+                self.logger.warning("Sudo requires password or is not available")
             }
         }
     }
@@ -208,7 +207,7 @@ actor PurgeEngine {
         do {
             // Delete found targets using SafeRemover
             for target in targetsFound {
-                try? await safeRemover.remove(at: URL(fileURLWithPath: target))
+                removeItem(at: URL(fileURLWithPath: target))
             }
 
             logger.info("Purge completed for \(path): \(totalFiles) files deleted, \(self.formatBytes(totalSizeKB * 1024)) saved")

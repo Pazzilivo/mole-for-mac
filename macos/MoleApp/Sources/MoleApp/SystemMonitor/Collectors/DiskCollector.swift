@@ -40,13 +40,11 @@ final class DiskCollector: MetricCollector {
             let external = isExternalDisk(mountPath: mount)
 
             // Get APFS container free space for more accurate reading
-            let apfsFree = getAPFSContainerFree(mountPath: mount)
-            let (adjustedUsed, adjustedPercent) = if let apfsFree = apfsFree {
-                let adjustedUsed = totalSpace - apfsFree
-                let adjustedPercent = totalSpace > 0 ? (Double(adjustedUsed) / Double(totalSpace)) * 100.0 : 0.0
-                (adjustedUsed, adjustedPercent)
-            } else {
-                (usedSpace, usedPercent)
+            var adjustedUsed = usedSpace
+            var adjustedPercent = usedPercent
+            if let apfsFree = getAPFSContainerFree(mountPath: mount) {
+                adjustedUsed = totalSpace - apfsFree
+                adjustedPercent = totalSpace > 0 ? (Double(adjustedUsed) / Double(totalSpace)) * 100.0 : 0.0
             }
 
             let disk = DiskStatus(

@@ -28,7 +28,7 @@ final class NetworkCollector: MetricCollector {
             let addrPtr = addr.ifa_addr
 
             // Only process AF_INET (IPv4) interfaces
-            guard addrPtr.pointee.sa_family == UInt8(AF_INET) else {
+            guard let addrPtr = addr.ifa_addr, addrPtr.pointee.sa_family == UInt8(AF_INET) else {
                 ptr = addr.ifa_next
                 continue
             }
@@ -98,7 +98,7 @@ final class NetworkCollector: MetricCollector {
             0,
             AF_INET,
             NET_RT_IFLIST,
-            if_nametoindex(interface)
+            Int32(if_nametoindex(interface))
         ]
 
         var len: Int = 0

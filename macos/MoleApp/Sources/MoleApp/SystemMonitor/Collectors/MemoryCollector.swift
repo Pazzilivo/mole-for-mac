@@ -95,7 +95,7 @@ final class MemoryCollector: MetricCollector {
             ptr.load(as: UInt64.self)
         }
         let used = buffer.withUnsafeBytes { ptr in
-            ptr.advanced(by: MemoryLayout<UInt64>.size).load(as: UInt64.self)
+            ptr.baseAddress!.advanced(by: MemoryLayout<UInt64>.size).load(as: UInt64.self)
         }
 
         return (used, total)

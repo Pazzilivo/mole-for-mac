@@ -6,7 +6,10 @@ actor OptimizeEngine {
     private let logger = Logger(subsystem: "com.mole.optimize", category: "OptimizeEngine")
     private let fileManager = FileManager.default
     private let processManager = ProcessManager()
-    private let safeRemover = SafeRemover()
+    // Simple file removal helper (SafeRemover requires CleanEngine dependencies)
+    private func removeItem(at url: URL) {
+        try? fileManager.removeItem(at: url)
+    }
 
     // Optimization state tracking
     private var activeTasks: Set<String> = []
@@ -322,7 +325,7 @@ actor OptimizeEngine {
 
             // Remove cache directories
             for path in cachePaths {
-                try? await safeRemover.remove(at: URL(fileURLWithPath: path))
+                removeItem(at: URL(fileURLWithPath: path))
             }
 
             cacheCleanedKB += totalSizeKB
@@ -414,7 +417,7 @@ actor OptimizeEngine {
         }
 
         do {
-            try? await safeRemover.remove(at: URL(fileURLWithPath: savedStatesPath))
+            removeItem(at: URL(fileURLWithPath: savedStatesPath))
             try? fileManager.createDirectory(atPath: savedStatesPath, withIntermediateDirectories: true)
 
             cacheCleanedKB += totalSizeKB
@@ -469,7 +472,7 @@ actor OptimizeEngine {
 
         do {
             for path in coreDuetPaths {
-                try? await safeRemover.remove(at: URL(fileURLWithPath: path))
+                removeItem(at: URL(fileURLWithPath: path))
             }
 
             cacheCleanedKB += totalSizeKB
@@ -517,7 +520,7 @@ actor OptimizeEngine {
         }
 
         do {
-            try? await safeRemover.remove(at: URL(fileURLWithPath: notificationPath))
+            removeItem(at: URL(fileURLWithPath: notificationPath))
             try? fileManager.createDirectory(atPath: notificationPath, withIntermediateDirectories: true)
 
             cacheCleanedKB += totalSizeKB
@@ -572,7 +575,7 @@ actor OptimizeEngine {
 
         do {
             for path in mediaAnalysisPaths {
-                try? await safeRemover.remove(at: URL(fileURLWithPath: path))
+                removeItem(at: URL(fileURLWithPath: path))
             }
 
             cacheCleanedKB += totalSizeKB
@@ -627,7 +630,7 @@ actor OptimizeEngine {
         do {
             if let globResults = glob(wallpaperPath) {
                 for path in globResults {
-                    try? await safeRemover.remove(at: URL(fileURLWithPath: path))
+                    removeItem(at: URL(fileURLWithPath: path))
                 }
             }
 
@@ -1083,7 +1086,7 @@ actor OptimizeEngine {
 
                         // Check if the agent references an app that no longer exists
                         if checkOrphanedLaunchAgent(fullPath) {
-                            try? await safeRemover.remove(at: URL(fileURLWithPath: fullPath))
+                            removeItem(at: URL(fileURLWithPath: fullPath))
                             orphanedCount += 1
                         }
                     }
