@@ -1,4 +1,5 @@
 import Foundation
+import MachO
 
 final class CPUCollector: MetricCollector {
     typealias Output = CPUStatus

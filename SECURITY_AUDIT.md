@@ -256,8 +256,8 @@ Mole treats release trust as part of its security posture, not just a packaging 
 
 Repository-level signals include:
 
-- weekly Dependabot updates for Go modules and GitHub Actions
-- pre-commit hook that mirrors GitHub CI checks locally (shell syntax, shfmt, shellcheck, Go vet)
+- weekly Dependabot updates for GitHub Actions
+- pre-commit hook that mirrors GitHub CI checks locally (shell syntax, shfmt, shellcheck)
 - CI checks for unsafe `rm -rf` usage patterns and core protection behavior
 - targeted tests for path validation, purge boundaries, symlink behavior, dry-run flows, and destructive helpers
 - macOS 14 and macOS 15 compatibility coverage for core Bats suites
@@ -282,7 +282,6 @@ There is no single `tests/security.bats` file. Instead, security-relevant behavi
 - `tests/purge.bats`
 - `tests/installer.bats`
 - `tests/optimize.bats`
-- `cmd/analyze/*_test.go`
 
 Key coverage areas include:
 

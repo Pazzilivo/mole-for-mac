@@ -23,6 +23,31 @@ actor SafeRemover {
     }
 
     // MARK: - Public Removal Methods
+    func remove(at url: URL) async throws {
+        let path = url.path
+        var isDir: ObjCBool = false
+        let exists = fileManager.fileExists(atPath: path, isDirectory: &isDir)
+        guard exists else { return }
+
+        let attrs = try? fileManager.attributesOfItem(atPath: path)
+        let size = (attrs?[.size] as? Int64) ?? 0
+
+        let item = CleanItem(
+            path: path,
+            size: size,
+            type: isDir.boolValue ? .directory : .file,
+            category: .other,
+            riskLevel: .low,
+            lastAccessed: nil,
+            isProtected: false,
+            isWhitelisted: false
+        )
+        let result = await remove(item)
+        if result.status == .failed, let error = result.errorMessage {
+            throw CleanEngineError.operationFailed(error)
+        }
+    }
+
     func remove(_ target: CleanItem) async -> CleanResult {
         let startTime = Date()
 
@@ -410,29 +435,5 @@ struct RemovalProgress {
 
     var formattedProgress: String {
         return "\(processedTargets)/\(totalTargets) (\(percentage)%)"
-    }
-}
-
-// MARK: - Removal Error
-enum RemovalError: Error, LocalizedError {
-    case permissionDenied(String)
-    case fileInUse(String)
-    case systemProtected(String)
-    case invalidPath(String)
-    case unknownError(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .permissionDenied(let path):
-            return "Permission denied: \(path)"
-        case .fileInUse(let path):
-            return "File in use: \(path)"
-        case .systemProtected(let path):
-            return "System protected: \(path)"
-        case .invalidPath(let path):
-            return "Invalid path: \(path)"
-        case .unknownError(let message):
-            return "Unknown error: \(message)"
-        }
     }
 }
