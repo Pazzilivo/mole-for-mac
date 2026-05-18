@@ -13,7 +13,7 @@ actor PurgeEngine {
 
     // Purge state tracking
     private var customPaths: [String] = []
-    private var sudoAvailable = false
+    private nonisolated(unsafe) var sudoAvailable = false
 
     /// Result type for purge operations
     struct PurgeResult: Sendable {
