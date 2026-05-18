@@ -20,30 +20,28 @@ final class DiskCollector: MetricCollector {
         for volumeURL in volumes {
             let volumePath = volumeURL.path
 
-            // Get volume info using statfs
             var stat = statfs()
             if statfs(volumePath, &stat) != 0 {
                 continue
             }
 
-            let mount = String(cString: &stat.f_mntonname.0)
-            let device = String(cString: &stat.f_mntfromname.0)
-            let fstype = String(cString: &stat.f_fstypename.0)
+            let mount = Self.statfsString(from: stat.f_mntonname)
+            let device = Self.statfsString(from: stat.f_mntfromname)
+            let fstype = Self.statfsString(from: stat.f_fstypename)
+            guard !mount.isEmpty else { continue }
 
-            // Get capacity info
-            let totalSpace = UInt64(stat.f_bsize) * UInt64(stat.f_blocks)
-            let availableSpace = UInt64(stat.f_bsize) * UInt64(stat.f_bavail)
-            let usedSpace = totalSpace - availableSpace
+            let blockSize = UInt64(max(stat.f_bsize, 0))
+            let totalSpace = blockSize * UInt64(stat.f_blocks)
+            let availableSpace = blockSize * UInt64(stat.f_bavail)
+            let usedSpace = totalSpace > availableSpace ? totalSpace - availableSpace : 0
             let usedPercent = totalSpace > 0 ? (Double(usedSpace) / Double(totalSpace)) * 100.0 : 0.0
 
-            // Check if external (FIXED C6: corrected logic - use AND instead of OR)
             let external = isExternalDisk(mountPath: mount)
 
-            // Get APFS container free space for more accurate reading
             var adjustedUsed = usedSpace
             var adjustedPercent = usedPercent
             if let apfsFree = getAPFSContainerFree(mountPath: mount) {
-                adjustedUsed = totalSpace - apfsFree
+                adjustedUsed = totalSpace > apfsFree ? totalSpace - apfsFree : usedSpace
                 adjustedPercent = totalSpace > 0 ? (Double(adjustedUsed) / Double(totalSpace)) * 100.0 : 0.0
             }
 
@@ -60,6 +58,15 @@ final class DiskCollector: MetricCollector {
         }
 
         return disks
+    }
+
+    private static func statfsString<T>(from field: T) -> String {
+        var field = field
+        return withUnsafePointer(to: &field) { pointer in
+            pointer.withMemoryRebound(to: CChar.self, capacity: MemoryLayout<T>.size) { cString in
+                String(cString: cString)
+            }
+        }
     }
 
     private func isExternalDisk(mountPath: String) -> Bool? {

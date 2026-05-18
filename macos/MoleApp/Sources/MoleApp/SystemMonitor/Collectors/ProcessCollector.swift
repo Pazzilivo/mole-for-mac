@@ -4,7 +4,7 @@ final class ProcessCollector: MetricCollector {
     typealias Output = [ProcessEntry]
 
     func collect() async throws -> [ProcessEntry] {
-        return try await withCheckedThrowingContinuation { continuation in
+        try await Task.detached(priority: .utility) { () throws -> [ProcessEntry] in
             let process = Process()
             let pipe = Pipe()
 
@@ -12,37 +12,33 @@ final class ProcessCollector: MetricCollector {
             process.arguments = ["-Aceo", "pid=,ppid=,pcpu=,pmem=,comm=", "-r"]
             process.standardOutput = pipe
 
-            // Add timeout to prevent continuation leak
-            Task {
-                try? await Task.sleep(nanoseconds: 5_000_000_000) // 5 seconds
-                if Task.isCancelled == false {
-                    process.terminate()
-                    continuation.resume(throwing: NSError(domain: "ProcessCollector", code: 2, userInfo: [NSLocalizedDescriptionKey: "Process timeout"]))
-                }
-            }
-
-            // Use terminationHandler instead of waitUntilExit (Fix warning)
-            process.terminationHandler = { process in
-                let data = pipe.fileHandleForReading.readDataToEndOfFile()
-
-                guard let output = String(data: data, encoding: .utf8) else {
-                    continuation.resume(throwing: NSError(domain: "ProcessCollector", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unable to decode output"]))
-                    return
-                }
-
-                let entries = self.parsePSOutput(output)
-                continuation.resume(returning: Array(entries.prefix(5)))
-            }
-
             do {
                 try process.run()
             } catch {
-                continuation.resume(throwing: NSError(domain: "ProcessCollector", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to execute process: \(error.localizedDescription)"]))
+                throw NSError(domain: "ProcessCollector", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed to execute process: \(error.localizedDescription)"])
             }
-        }
+
+            let deadline = Date().addingTimeInterval(2)
+            while process.isRunning && Date() < deadline {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+
+            guard !process.isRunning else {
+                process.terminate()
+                return []
+            }
+
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            guard let output = String(data: data, encoding: .utf8) else {
+                throw NSError(domain: "ProcessCollector", code: 1, userInfo: [NSLocalizedDescriptionKey: "Unable to decode output"])
+            }
+
+            let entries = Self.parsePSOutput(output)
+            return Array(entries.prefix(5))
+        }.value
     }
 
-    private func parsePSOutput(_ output: String) -> [ProcessEntry] {
+    private static func parsePSOutput(_ output: String) -> [ProcessEntry] {
         var entries: [ProcessEntry] = []
 
         for line in output.components(separatedBy: "\n").dropFirst() {

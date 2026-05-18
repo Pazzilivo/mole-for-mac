@@ -328,18 +328,8 @@ final class MoleAppModel: ObservableObject {
     func checkForUpdates() async {
         updateState = .loading
         do {
-            // Use GitHub API to get exact release info (asset names, download URLs)
-            let apiURL = URL(string: "https://api.github.com/repos/Pazzilivo/mole-for-mac/releases/latest")!
-            var request = URLRequest(url: apiURL)
-            request.setValue("Mole-macOS/\(currentVersion)", forHTTPHeaderField: "User-Agent")
-            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
-            let (data, _) = try await URLSession.shared.data(for: request)
-
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let tagName = json["tag_name"] as? String else {
-                updateState = .failed("Update check failed: unexpected API response")
-                return
-            }
+            let release = try await fetchLatestRelease()
+            let tagName = release.tagName
 
             let remote = tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName
             latestVersion = remote
@@ -351,19 +341,104 @@ final class MoleAppModel: ObservableObject {
                 return
             }
 
-            // Find the zip asset download URL from the release assets
-            if let assets = json["assets"] as? [[String: Any]],
-               let zipAsset = assets.first(where: { ($0["name"] as? String)?.hasSuffix(".zip") == true }),
-               let downloadURL = zipAsset["browser_download_url"] as? String {
-                updateDownloadURL = downloadURL
-            } else {
-                // Fallback: construct URL using tag name (matches zip naming convention)
-                updateDownloadURL = "https://github.com/Pazzilivo/mole-for-mac/releases/download/\(tagName)/Mole-\(tagName).zip"
-            }
+            updateDownloadURL = release.assetURL ?? "https://github.com/Pazzilivo/mole-for-mac/releases/download/\(tagName)/Mole-\(tagName).zip"
             updateState = .ready
         } catch {
             updateState = .failed("Update check failed: \(error.localizedDescription)")
         }
+    }
+
+    private struct LatestRelease {
+        let tagName: String
+        let assetURL: String?
+    }
+
+    private func fetchLatestRelease() async throws -> LatestRelease {
+        do {
+            return try await fetchLatestReleaseFromAPI()
+        } catch {
+            return try await fetchLatestReleaseFromRedirect()
+        }
+    }
+
+    private func fetchLatestReleaseFromAPI() async throws -> LatestRelease {
+        let apiURL = URL(string: "https://api.github.com/repos/Pazzilivo/mole-for-mac/releases/latest")!
+        var request = URLRequest(url: apiURL)
+        request.setValue("Mole-macOS/\(currentVersion)", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+            throw NSError(
+                domain: "Update",
+                code: http.statusCode,
+                userInfo: [NSLocalizedDescriptionKey: apiErrorMessage(from: data) ?? "GitHub API returned HTTP \(http.statusCode)"]
+            )
+        }
+
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let tagName = json["tag_name"] as? String,
+              !tagName.isEmpty else {
+            throw NSError(domain: "Update", code: -2, userInfo: [NSLocalizedDescriptionKey: "GitHub API response did not include a release tag"])
+        }
+
+        let assetURL = preferredAssetURL(from: json["assets"] as? [[String: Any]], tagName: tagName)
+        return LatestRelease(tagName: tagName, assetURL: assetURL)
+    }
+
+    private func fetchLatestReleaseFromRedirect() async throws -> LatestRelease {
+        let latestURL = URL(string: "https://github.com/Pazzilivo/mole-for-mac/releases/latest")!
+        var request = URLRequest(url: latestURL)
+        request.httpMethod = "HEAD"
+        request.setValue("Mole-macOS/\(currentVersion)", forHTTPHeaderField: "User-Agent")
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+
+        let (_, response) = try await URLSession.shared.data(for: request)
+        guard let finalURL = response.url,
+              finalURL.path.contains("/releases/tag/") else {
+            throw NSError(domain: "Update", code: -3, userInfo: [NSLocalizedDescriptionKey: "Could not resolve latest release redirect"])
+        }
+
+        let tagName = finalURL.lastPathComponent
+        guard !tagName.isEmpty else {
+            throw NSError(domain: "Update", code: -4, userInfo: [NSLocalizedDescriptionKey: "Latest release redirect did not include a tag"])
+        }
+
+        return LatestRelease(
+            tagName: tagName,
+            assetURL: "https://github.com/Pazzilivo/mole-for-mac/releases/download/\(tagName)/Mole-\(tagName).zip"
+        )
+    }
+
+    private func preferredAssetURL(from assets: [[String: Any]]?, tagName: String) -> String? {
+        let version = tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName
+        let preferredNames = [
+            "Mole-\(tagName).zip",
+            "Mole-\(version).zip"
+        ]
+
+        for name in preferredNames {
+            if let asset = assets?.first(where: { ($0["name"] as? String) == name }),
+               let url = asset["browser_download_url"] as? String {
+                return url
+            }
+        }
+
+        return assets?
+            .first(where: { asset in
+                guard let name = asset["name"] as? String else { return false }
+                return name.hasPrefix("Mole-") && name.hasSuffix(".zip")
+            })?["browser_download_url"] as? String
+    }
+
+    private func apiErrorMessage(from data: Data) -> String? {
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let message = json["message"] as? String,
+              !message.isEmpty else {
+            return nil
+        }
+        return message
     }
 
     func performUpdate() async {
