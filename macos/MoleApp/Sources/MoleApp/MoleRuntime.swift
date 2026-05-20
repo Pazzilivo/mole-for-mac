@@ -97,6 +97,10 @@ final class MoleAppModel: ObservableObject {
     @Published var deletionLog: [DeletionLogEntry] = []
 
     let runtime = MoleRuntime()
+    private let systemMonitor = SystemMonitor()
+    private let uninstallEngine = UninstallEngine()
+    private let diskScanner = DiskScanner()
+    private let cacheCleaner = AppCacheCleaner()
     private var useSudo: Bool { false }
 
     func refreshDashboard() async {
@@ -140,8 +144,7 @@ final class MoleAppModel: ObservableObject {
     func refreshStatus() async {
         statusState = .loading
         do {
-            let monitor = SystemMonitor()
-            let metrics = try await monitor.collect()
+            let metrics = try await systemMonitor.collect()
             status = StatusAdapter.convert(metrics)
             statusState = .ready
             append("Status refreshed", detail: "System metrics collected natively.")
@@ -154,8 +157,7 @@ final class MoleAppModel: ObservableObject {
     func refreshApps() async {
         appsState = .loading
         do {
-            let engine = UninstallEngine()
-            let discovered = try await engine.listApps()
+            let discovered = try await uninstallEngine.listApps()
             apps = AppListAdapter.convert(discovered)
             appsState = .ready
             append("Applications scanned", detail: "\(apps.count) apps found.")
@@ -171,8 +173,7 @@ final class MoleAppModel: ObservableObject {
         do {
             let home = FileManager.default.homeDirectoryForCurrentUser.path
             analyzeProgress = "Scanning \(home)..."
-            let scanner = DiskScanner()
-            let scanResult = try await scanner.scan(path: home)
+            let scanResult = try await diskScanner.scan(path: home)
             analysis = AnalysisAdapter.convert(scanResult, path: home)
             analyzeState = .ready
             append("Home analyzed", detail: "Disk scan finished for \(home).")
@@ -187,7 +188,7 @@ final class MoleAppModel: ObservableObject {
         uninstallState = .loading
         uninstallProgress = "Uninstalling \(appName)..."
         do {
-            let engine = UninstallEngine()
+            let engine = uninstallEngine
             let apps = try await engine.listApps()
             guard let matched = apps.first(where: { $0.id == app.bundleID || $0.name == appName }) else {
                 uninstallState = .failed("App not found: \(appName)")
@@ -220,8 +221,7 @@ final class MoleAppModel: ObservableObject {
 
         do {
             cleanProgress = "Scanning caches..."
-            let cacheCleaner = AppCacheCleaner()
-            let results = cacheCleaner.cleanAllAppCaches(dryRun: true)
+            let results = await cacheCleaner.cleanAllAppCaches(dryRun: true)
 
             cleanProgress = ""
             let categories = CleanAdapter.convertCacheResults(results)
@@ -241,8 +241,7 @@ final class MoleAppModel: ObservableObject {
         cleanState = .loading
         cleanProgress = "Cleaning..."
         do {
-            let cacheCleaner = AppCacheCleaner()
-            let _ = cacheCleaner.cleanAllAppCaches(dryRun: false)
+            let _ = await cacheCleaner.cleanAllAppCaches(dryRun: false)
             cleanCategories = []
             cleanTotalSize = "--"
             cleanProgress = ""
@@ -277,8 +276,7 @@ final class MoleAppModel: ObservableObject {
     func refreshOptimizePlan() async {
         optimizeState = .loading
         do {
-            let monitor = SystemMonitor()
-            let metrics = try await monitor.collect()
+            let metrics = try await systemMonitor.collect()
 
             let memoryUsedGB = Double(metrics.memory.used) / 1_073_741_824.0
             let memoryTotalGB = Double(metrics.memory.total) / 1_073_741_824.0
