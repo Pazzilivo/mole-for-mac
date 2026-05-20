@@ -2,7 +2,7 @@ import Foundation
 
 /// Handles application cache cleaning for macOS apps
 /// Ported from lib/clean/app_caches.sh
-class AppCacheCleaner {
+actor AppCacheCleaner {
 
     private let fileManager = FileManager.default
     private let homeDir: URL
@@ -22,21 +22,25 @@ class AppCacheCleaner {
 
     // MARK: - Process Detection
 
-    private func isProcessRunning(_ processName: String) -> Bool {
-        let task = Process()
-        task.launchPath = "/usr/bin/pgrep"
-        task.arguments = ["-x", processName]
+    private func isProcessRunning(_ processName: String) async -> Bool {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.global().async {
+                let task = Process()
+                task.launchPath = "/usr/bin/pgrep"
+                task.arguments = ["-x", processName]
 
-        let pipe = Pipe()
-        task.standardOutput = pipe
-        task.standardError = Pipe()
+                let pipe = Pipe()
+                task.standardOutput = pipe
+                task.standardError = Pipe()
 
-        do {
-            try task.run()
-            task.waitUntilExit()
-            return task.terminationStatus == 0
-        } catch {
-            return false
+                do {
+                    try task.run()
+                    task.waitUntilExit()
+                    continuation.resume(returning: task.terminationStatus == 0)
+                } catch {
+                    continuation.resume(returning: false)
+                }
+            }
         }
     }
 
@@ -130,9 +134,9 @@ class AppCacheCleaner {
 
     // MARK: - Xcode Cache Cleaning
 
-    func cleanXcodeDerivedData(dryRun: Bool = false) -> CacheResult? {
+    func cleanXcodeDerivedData(dryRun: Bool = false) async -> CacheResult? {
         // Skip while Xcode is running to avoid build failures
-        if isProcessRunning("Xcode") {
+        if await isProcessRunning("Xcode") {
             print("Xcode is running, skipping DerivedData cleanup")
             return nil
         }
@@ -176,14 +180,15 @@ class AppCacheCleaner {
         }
     }
 
-    func cleanXcodeTools(dryRun: Bool = false) -> [CacheResult] {
+    func cleanXcodeTools(dryRun: Bool = false) async -> [CacheResult] {
         var results: [CacheResult] = []
 
-        let xcodeRunning = isProcessRunning("Xcode")
-        let simulatorRunning = isProcessRunning("Simulator")
+        async let xcodeRunning = isProcessRunning("Xcode")
+        async let simulatorRunning = isProcessRunning("Simulator")
+        let (xcodeIsRunning, simulatorIsRunning) = await (xcodeRunning, simulatorRunning)
 
         // Simulator caches (skip while Simulator is running)
-        if !simulatorRunning {
+        if !simulatorIsRunning {
             let simulatorCache = homeDir.appendingPathComponent("Library/Developer/CoreSimulator/Caches")
             let result = cleanDirectoryContents(at: simulatorCache, dryRun: dryRun)
             if result > 0 {
@@ -225,7 +230,7 @@ class AppCacheCleaner {
             }
 
             // Remove unavailable simulator devices
-            removeUnavailableSimulatorDevices(dryRun: dryRun)
+            await removeUnavailableSimulatorDevices(dryRun: dryRun)
         }
 
         // Xcode-specific caches
@@ -273,9 +278,9 @@ class AppCacheCleaner {
             ))
         }
 
-        if !xcodeRunning {
+        if !xcodeIsRunning {
             // DerivedData and documentation
-            if let derivedDataResult = cleanXcodeDerivedData(dryRun: dryRun) {
+            if let derivedDataResult = await cleanXcodeDerivedData(dryRun: dryRun) {
                 results.append(derivedDataResult)
             }
 
@@ -305,20 +310,25 @@ class AppCacheCleaner {
         return results
     }
 
-    private func removeUnavailableSimulatorDevices(dryRun: Bool = false) {
-        let task = Process()
-        task.launchPath = "/usr/bin/xcrun"
-        task.arguments = ["simctl", "delete", "unavailable"]
-
+    private func removeUnavailableSimulatorDevices(dryRun: Bool = false) async {
         if dryRun {
             return
         }
 
-        do {
-            try task.run()
-            task.waitUntilExit()
-        } catch {
-            print("Failed to remove unavailable simulators: \(error.localizedDescription)")
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global().async {
+                let task = Process()
+                task.launchPath = "/usr/bin/xcrun"
+                task.arguments = ["simctl", "delete", "unavailable"]
+
+                do {
+                    try task.run()
+                    task.waitUntilExit()
+                } catch {
+                    print("Failed to remove unavailable simulators: \(error.localizedDescription)")
+                }
+                continuation.resume()
+            }
         }
     }
 
@@ -558,11 +568,11 @@ class AppCacheCleaner {
 
     // MARK: - Final Cut Pro Cache Cleaning
 
-    func cleanFinalCutPro(dryRun: Bool = false) -> [CacheResult] {
+    func cleanFinalCutPro(dryRun: Bool = false) async -> [CacheResult] {
         var results: [CacheResult] = []
 
         // Check if Final Cut Pro is running
-        if isProcessRunning("Final Cut Pro") {
+        if await isProcessRunning("Final Cut Pro") {
             print("Final Cut Pro is running, skipping cache cleanup")
             return results
         }
@@ -581,13 +591,13 @@ class AppCacheCleaner {
         }
 
         // Clean Final Cut Pro generated caches
-        let generatedCacheResults = cleanFinalCutProGeneratedCaches(dryRun: dryRun)
+        let generatedCacheResults = await cleanFinalCutProGeneratedCaches(dryRun: dryRun)
         results.append(contentsOf: generatedCacheResults)
 
         return results
     }
 
-    private func cleanFinalCutProGeneratedCaches(dryRun: Bool = false) -> [CacheResult] {
+    private func cleanFinalCutProGeneratedCaches(dryRun: Bool = false) async -> [CacheResult] {
         var results: [CacheResult] = []
         let moviesDir = homeDir.appendingPathComponent("Movies")
 
@@ -657,7 +667,7 @@ class AppCacheCleaner {
 
     // MARK: - Video Tools Cache Cleaning
 
-    func cleanVideoTools(dryRun: Bool = false) -> [CacheResult] {
+    func cleanVideoTools(dryRun: Bool = false) async -> [CacheResult] {
         var results: [CacheResult] = []
 
         let videoToolPaths = [
@@ -683,7 +693,7 @@ class AppCacheCleaner {
         }
 
         // Add Final Cut Pro cleaning
-        results.append(contentsOf: cleanFinalCutPro(dryRun: dryRun))
+        results.append(contentsOf: await cleanFinalCutPro(dryRun: dryRun))
 
         return results
     }
@@ -720,34 +730,37 @@ class AppCacheCleaner {
 
     // MARK: - Main Cleaning Function
 
-    func cleanAllAppCaches(dryRun: Bool = false) -> [CacheResult] {
-        var allResults: [CacheResult] = []
+    func cleanAllAppCaches(dryRun: Bool = false) async -> [CacheResult] {
+        await withTaskGroup(of: [CacheResult].self) { group in
+            group.addTask { await self.cleanXcodeTools(dryRun: dryRun) }
+            group.addTask { await self.cleanCodeEditors(dryRun: dryRun) }
+            group.addTask { await self.cleanCommunicationApps(dryRun: dryRun) }
+            group.addTask { await self.cleanDingTalk(dryRun: dryRun) }
+            group.addTask { await self.cleanAIApps(dryRun: dryRun) }
+            group.addTask { await self.cleanDesignTools(dryRun: dryRun) }
+            group.addTask { await self.cleanVideoTools(dryRun: dryRun) }
+            group.addTask { await self.clean3DTools(dryRun: dryRun) }
+            group.addTask { await self.cleanProductivityApps(dryRun: dryRun) }
+            group.addTask { await self.cleanMediaPlayers(dryRun: dryRun) }
+            group.addTask { await self.cleanVideoPlayers(dryRun: dryRun) }
+            group.addTask { await self.cleanDownloadManagers(dryRun: dryRun) }
+            group.addTask { await self.cleanGamingPlatforms(dryRun: dryRun) }
+            group.addTask { await self.cleanTranslationApps(dryRun: dryRun) }
+            group.addTask { await self.cleanScreenshotTools(dryRun: dryRun) }
+            group.addTask { await self.cleanEmailClients(dryRun: dryRun) }
+            group.addTask { await self.cleanTaskApps(dryRun: dryRun) }
+            group.addTask { await self.cleanShellUtils(dryRun: dryRun) }
+            group.addTask { await self.cleanSystemUtils(dryRun: dryRun) }
+            group.addTask { await self.cleanNoteApps(dryRun: dryRun) }
+            group.addTask { await self.cleanLauncherApps(dryRun: dryRun) }
+            group.addTask { await self.cleanRemoteDesktop(dryRun: dryRun) }
 
-        // Clean each category
-        allResults.append(contentsOf: cleanXcodeTools(dryRun: dryRun))
-        allResults.append(contentsOf: cleanCodeEditors(dryRun: dryRun))
-        allResults.append(contentsOf: cleanCommunicationApps(dryRun: dryRun))
-        allResults.append(contentsOf: cleanDingTalk(dryRun: dryRun))
-        allResults.append(contentsOf: cleanAIApps(dryRun: dryRun))
-        allResults.append(contentsOf: cleanDesignTools(dryRun: dryRun))
-        allResults.append(contentsOf: cleanVideoTools(dryRun: dryRun))
-        allResults.append(contentsOf: clean3DTools(dryRun: dryRun))
-        allResults.append(contentsOf: cleanProductivityApps(dryRun: dryRun))
-        allResults.append(contentsOf: cleanMediaPlayers(dryRun: dryRun))
-        allResults.append(contentsOf: cleanVideoPlayers(dryRun: dryRun))
-        allResults.append(contentsOf: cleanDownloadManagers(dryRun: dryRun))
-        allResults.append(contentsOf: cleanGamingPlatforms(dryRun: dryRun))
-        allResults.append(contentsOf: cleanTranslationApps(dryRun: dryRun))
-        allResults.append(contentsOf: cleanScreenshotTools(dryRun: dryRun))
-        allResults.append(contentsOf: cleanEmailClients(dryRun: dryRun))
-        allResults.append(contentsOf: cleanTaskApps(dryRun: dryRun))
-        allResults.append(contentsOf: cleanShellUtils(dryRun: dryRun))
-        allResults.append(contentsOf: cleanSystemUtils(dryRun: dryRun))
-        allResults.append(contentsOf: cleanNoteApps(dryRun: dryRun))
-        allResults.append(contentsOf: cleanLauncherApps(dryRun: dryRun))
-        allResults.append(contentsOf: cleanRemoteDesktop(dryRun: dryRun))
-
-        return allResults
+            var allResults: [CacheResult] = []
+            for await results in group {
+                allResults.append(contentsOf: results)
+            }
+            return allResults
+        }
     }
 
     // MARK: - Additional App Categories
