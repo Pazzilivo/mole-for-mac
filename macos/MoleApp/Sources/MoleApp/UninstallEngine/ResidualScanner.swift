@@ -6,6 +6,17 @@ actor ResidualScanner {
     // MARK: - Dependencies
     private let safeRemover = UninstallSafeRemover()
 
+    // MARK: - Pre-compiled regex templates
+    private struct CompiledPattern {
+        let basePath: String
+        let regexTemplate: String  // template with __BID__, __VENDOR__, __GROUP__, __APPNAME__ placeholders
+        let category: ResidualFile.ResidualCategory
+        let riskLevel: ResidualFile.RiskLevel
+        let description: String
+    }
+
+    private let compiledPatterns: [CompiledPattern]
+
     // MARK: - Scan Patterns
     private let scanPatterns: [ResidualPattern] = [
         // Application Support
@@ -144,32 +155,55 @@ actor ResidualScanner {
         )
     ]
 
+    init() {
+        // Pre-compile regex templates at init time
+        self.compiledPatterns = scanPatterns.map { pattern in
+            let template = Self.convertShellPatternToRegexTemplate(pattern.pattern)
+            return CompiledPattern(
+                basePath: pattern.basePath,
+                regexTemplate: template,
+                category: pattern.category,
+                riskLevel: pattern.riskLevel,
+                description: pattern.description
+            )
+        }
+    }
+
     // MARK: - Public Methods
 
     /// Find residual files for a given bundle ID
     func findResidualFiles(bundleId: String, appName: String) async throws -> [ResidualFile] {
         var residuals: [ResidualFile] = []
         let vendor = extractVendor(from: bundleId)
-
-        // Extract group identifier from bundle ID if available
         let groupIdentifier = extractGroupIdentifier(from: bundleId)
 
-        for pattern in scanPatterns {
-            let searchPattern = pattern.pattern
-                .replacingOccurrences(of: "{bundleId}", with: bundleId)
-                .replacingOccurrences(of: "{vendor}", with: vendor)
-                .replacingOccurrences(of: "{group}", with: groupIdentifier)
-                .replacingOccurrences(of: "{appname}", with: appName)
+        // Build substitution map
+        let subs: [String: String] = [
+            "__BID__": NSRegularExpression.escapedPattern(for: bundleId),
+            "__VENDOR__": NSRegularExpression.escapedPattern(for: vendor),
+            "__GROUP__": NSRegularExpression.escapedPattern(for: groupIdentifier),
+            "__APPNAME__": NSRegularExpression.escapedPattern(for: appName)
+        ]
 
-            if let found = await searchForPattern(
-                basePath: pattern.basePath,
-                pattern: searchPattern,
-                category: pattern.category,
-                riskLevel: pattern.riskLevel,
-                description: pattern.description
-            ) {
-                residuals.append(contentsOf: found)
+        // Compile final regexes grouped by basePath
+        var pathGroups: [String: [(NSRegularExpression, CompiledPattern)]] = [:]
+        for cp in compiledPatterns {
+            var regexStr = cp.regexTemplate
+            for (placeholder, escapedValue) in subs {
+                regexStr = regexStr.replacingOccurrences(of: placeholder, with: escapedValue)
             }
+            if let regex = try? NSRegularExpression(pattern: regexStr) {
+                pathGroups[cp.basePath, default: []].append((regex, cp))
+            }
+        }
+
+        // Single traversal per unique basePath
+        for (basePath, patterns) in pathGroups {
+            let found = await scanBasePath(
+                basePath: basePath,
+                patterns: patterns
+            )
+            residuals.append(contentsOf: found)
         }
 
         return residuals
@@ -177,17 +211,14 @@ actor ResidualScanner {
 
     // MARK: - Private Methods
 
-    private func searchForPattern(
+    private func scanBasePath(
         basePath: String,
-        pattern: String,
-        category: ResidualFile.ResidualCategory,
-        riskLevel: ResidualFile.RiskLevel,
-        description: String
-    ) async -> [ResidualFile]? {
+        patterns: [(NSRegularExpression, CompiledPattern)]
+    ) async -> [ResidualFile] {
         let fileManager = FileManager.default
 
         guard fileManager.fileExists(atPath: basePath) else {
-            return nil
+            return []
         }
 
         var results: [ResidualFile] = []
@@ -195,38 +226,48 @@ actor ResidualScanner {
         do {
             let baseURL = URL(fileURLWithPath: basePath)
 
-            // Convert shell pattern to regex
-            let regexPattern = convertShellPatternToRegex(pattern)
-
-            if let enumerator = fileManager.enumerator(at: baseURL, includingPropertiesForKeys: [.fileSizeKey]) {
+            if let enumerator = fileManager.enumerator(at: baseURL, includingPropertiesForKeys: [.fileSizeKey, .totalFileAllocatedSizeKey]) {
                 for case let url as URL in enumerator {
                     let fileName = url.lastPathComponent
+                    let nsFileName = fileName as NSString
+                    let range = NSRange(location: 0, length: nsFileName.length)
 
-                    if matchesPattern(fileName, pattern: regexPattern) {
-                        // Skip protected paths
-                        if await safeRemover.isProtectedPath(url) {
-                            continue
+                    for (regex, cp) in patterns {
+                        if regex.firstMatch(in: fileName, range: range) != nil {
+                            if await safeRemover.isProtectedPath(url) {
+                                continue
+                            }
+
+                            // Prefetched file size from enumerator
+                            let size: Int64
+                            if let resourceValues = try? url.resourceValues(forKeys: [.fileSizeKey, .totalFileAllocatedSizeKey]),
+                               let allocatedSize = resourceValues.totalFileAllocatedSize {
+                                size = Int64(allocatedSize)
+                            } else if let fileSize = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize {
+                                size = Int64(fileSize)
+                            } else {
+                                size = await getFileSize(at: url)
+                            }
+
+                            let residual = ResidualFile(
+                                path: url,
+                                size: size,
+                                category: cp.category,
+                                riskLevel: cp.riskLevel,
+                                description: cp.description
+                            )
+
+                            results.append(residual)
+                            break  // Match found for this file, no need to check other patterns
                         }
-
-                        let size = await getFileSize(at: url)
-
-                        let residual = ResidualFile(
-                            path: url,
-                            size: size,
-                            category: category,
-                            riskLevel: riskLevel,
-                            description: description
-                        )
-
-                        results.append(residual)
                     }
                 }
             }
         } catch {
-            return nil
+            return []
         }
 
-        return results.isEmpty ? nil : results
+        return results
     }
 
     private func extractVendor(from bundleId: String) -> String {
@@ -243,27 +284,29 @@ actor ResidualScanner {
         return "group.\(bundleId)"
     }
 
-    private func convertShellPatternToRegex(_ pattern: String) -> String {
-        // First escape special regex characters (except *)
-        let escapedPattern = NSRegularExpression.escapedPattern(for: pattern)
+    private static func convertShellPatternToRegexTemplate(_ pattern: String) -> String {
+        // Replace placeholders before escaping
+        var working = pattern
+        working = working.replacingOccurrences(of: "{bundleId}", with: "__BID__")
+        working = working.replacingOccurrences(of: "{vendor}", with: "__VENDOR__")
+        working = working.replacingOccurrences(of: "{group}", with: "__GROUP__")
+        working = working.replacingOccurrences(of: "{appname}", with: "__APPNAME__")
 
-        // Now convert shell wildcards to regex
-        var regex = escapedPattern.replacingOccurrences(of: "\\*", with: ".*")
-
-        // Add anchors
-        regex = "^\(regex)$"
-
-        return regex
-    }
-
-    private func matchesPattern(_ fileName: String, pattern: String) -> Bool {
-        do {
-            let regex = try NSRegularExpression(pattern: pattern)
-            let range = NSRange(fileName.startIndex..., in: fileName)
-            return regex.firstMatch(in: fileName, range: range) != nil
-        } catch {
-            return false
+        // Escape regex special characters (placeholders use __ prefix so they won't be escaped)
+        let specialChars: Set<Character> = ["\\", "^", "$", ".", "|", "?", "+", "(", ")", "[", "]", "{", "}"]
+        var escaped = ""
+        for char in working {
+            if char == "*" {
+                escaped.append(".*")
+            } else if specialChars.contains(char) {
+                escaped.append("\\")
+                escaped.append(char)
+            } else {
+                escaped.append(char)
+            }
         }
+
+        return "^\(escaped)$"
     }
 
     private func getFileSize(at url: URL) async -> Int64 {
