@@ -29,7 +29,7 @@ enum AppSection: String, CaseIterable, Identifiable {
 }
 
 struct ContentView: View {
-    @EnvironmentObject private var model: MoleAppModel
+    @EnvironmentObject private var rootModel: RootModel
     @State private var selection: AppSection? = .overview
 
     var body: some View {
@@ -42,7 +42,7 @@ struct ContentView: View {
             .toolbar {
                 ToolbarItem {
                     Button {
-                        Task { await model.refreshDashboard() }
+                        Task { await rootModel.refreshDashboard() }
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
@@ -75,39 +75,40 @@ struct ContentView: View {
 // MARK: - Overview
 
 struct OverviewPane: View {
-    @EnvironmentObject private var model: MoleAppModel
+    @EnvironmentObject private var rootModel: RootModel
+    @EnvironmentObject private var statusVM: StatusViewModel
     @Binding var selection: AppSection?
 
     var body: some View {
         Workspace(title: "Overview", subtitle: "System health at a glance.") {
             VStack(spacing: 20) {
-                if model.updateState == .ready {
-                    UpdateBanner(version: model.latestVersion) {
-                        Task { await model.performUpdate() }
+                if rootModel.updateState == .ready {
+                    UpdateBanner(version: rootModel.latestVersion) {
+                        Task { await rootModel.performUpdate() }
                     }
                     .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
-                if !model.hasFullDiskAccess {
+                if !statusVM.hasFullDiskAccess {
                     FullDiskAccessBanner()
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
 
-                if case let .failed(message) = model.statusState {
+                if case let .failed(message) = statusVM.statusState {
                     ErrorBanner(message: message)
                 }
 
                 QuickActions(selection: $selection)
             }
 
-            if let status = model.status {
+            if let status = statusVM.status {
                 VStack(spacing: 24) {
                     HealthDashboard(status: status)
                     DiskList(disks: status.disks ?? [])
                     ProcessList(processes: status.topProcesses ?? [])
                 }
                 .transition(.opacity)
-            } else if model.statusState == .loading {
+            } else if statusVM.statusState == .loading {
                 LoadingView(title: "Collecting system metrics...")
             } else {
                 EmptyState(
@@ -390,39 +391,39 @@ struct SectionHeader: View {
 // MARK: - Analyze
 
 struct AnalyzePane: View {
-    @EnvironmentObject private var model: MoleAppModel
+    @EnvironmentObject private var analyzeVM: AnalyzeViewModel
 
     var body: some View {
         Workspace(title: "Analyze", subtitle: "Inspect disk usage before removing anything.") {
             HStack {
                 Button {
-                    Task { await model.analyzeHome() }
+                    Task { await analyzeVM.analyzeHome() }
                 } label: {
                     Label("Analyze Home", systemImage: "magnifyingglass")
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.regular)
-                .disabled(model.analyzeState == .loading)
+                .disabled(analyzeVM.analyzeState == .loading)
 
-                if model.analyzeState == .loading {
+                if analyzeVM.analyzeState == .loading {
                     HStack(spacing: 10) {
                         ProgressView()
                             .controlSize(.small)
-                        Text(model.analyzeProgress.isEmpty ? "Starting analysis..." : model.analyzeProgress)
+                        Text(analyzeVM.analyzeProgress.isEmpty ? "Starting analysis..." : analyzeVM.analyzeProgress)
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                             .truncationMode(.middle)
-                            .animation(.easeInOut(duration: 0.3), value: model.analyzeProgress)
+                            .animation(.easeInOut(duration: 0.3), value: analyzeVM.analyzeProgress)
                     }
                 }
             }
 
-            if case let .failed(message) = model.analyzeState {
+            if case let .failed(message) = analyzeVM.analyzeState {
                 ErrorBanner(message: message)
             }
 
-            if let analysis = model.analysis {
+            if let analysis = analyzeVM.analysis {
                 VStack(alignment: .leading, spacing: 16) {
                     Text(analysis.path)
                         .font(.system(size: 12))
@@ -446,7 +447,7 @@ struct AnalyzePane: View {
                     .frame(minHeight: 360)
                 }
                 .transition(.opacity)
-            } else if model.analyzeState == .idle {
+            } else if analyzeVM.analyzeState == .idle {
                 EmptyState(
                     icon: "magnifyingglass",
                     title: "Ready to scan",
@@ -460,14 +461,14 @@ struct AnalyzePane: View {
 // MARK: - Uninstall
 
 struct UninstallPane: View {
-    @EnvironmentObject private var model: MoleAppModel
+    @EnvironmentObject private var uninstallVM: UninstallViewModel
     @State private var query = ""
     @State private var selectedApp: AppEntry?
     @State private var showConfirm = false
 
     private var filteredApps: [AppEntry] {
-        guard !query.isEmpty else { return model.apps }
-        return model.apps.filter {
+        guard !query.isEmpty else { return uninstallVM.apps }
+        return uninstallVM.apps.filter {
             $0.name.localizedCaseInsensitiveContains(query) ||
                 ($0.bundleID?.localizedCaseInsensitiveContains(query) ?? false)
         }
@@ -481,7 +482,7 @@ struct UninstallPane: View {
                     .frame(maxWidth: 320)
 
                 Button {
-                    Task { await model.refreshApps() }
+                    Task { await uninstallVM.refreshApps() }
                 } label: {
                     Image(systemName: "arrow.clockwise")
                 }
@@ -497,19 +498,19 @@ struct UninstallPane: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.red)
-                    .disabled(model.uninstallState == .loading)
+                    .disabled(uninstallVM.uninstallState == .loading)
                 }
             }
 
-            if case let .failed(message) = model.uninstallState {
+            if case let .failed(message) = uninstallVM.uninstallState {
                 ErrorBanner(message: message)
             }
 
-            if model.uninstallState == .loading {
+            if uninstallVM.uninstallState == .loading {
                 HStack(spacing: 10) {
                     ProgressView()
                         .controlSize(.small)
-                    Text(model.uninstallProgress.isEmpty ? "Uninstalling..." : model.uninstallProgress)
+                    Text(uninstallVM.uninstallProgress.isEmpty ? "Uninstalling..." : uninstallVM.uninstallProgress)
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -543,13 +544,13 @@ struct UninstallPane: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Uninstall", role: .destructive) {
                     if let app = selectedApp {
-                        Task { await model.uninstallApp(app) }
+                        Task { await uninstallVM.uninstallApp(app) }
                     }
                 }
             } message: {
                 Text("This will move \(selectedApp?.name ?? "the app") and its data to Trash. This action can be undone from Finder.")
             }
-            .onChange(of: model.uninstallState) { newState in
+            .onChange(of: uninstallVM.uninstallState) { newState in
                 if newState == .idle || newState == .failed("") {
                     selectedApp = nil
                 }
@@ -561,7 +562,7 @@ struct UninstallPane: View {
 // MARK: - Settings
 
 struct SettingsPane: View {
-    @EnvironmentObject private var model: MoleAppModel
+    @EnvironmentObject private var rootModel: RootModel
 
     var body: some View {
         Workspace(title: "Settings", subtitle: "Runtime, command line access, and local diagnostics.") {
@@ -571,11 +572,11 @@ struct SettingsPane: View {
                     SectionHeader(title: "Updates", icon: "arrow.triangle.2.circlepath")
 
                     HStack(spacing: 12) {
-                        Text("Current version: \(model.currentVersion)")
+                        Text("Current version: \(rootModel.currentVersion)")
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
 
-                        if model.updateState == .loading && model.latestVersion.isEmpty {
+                        if rootModel.updateState == .loading && rootModel.latestVersion.isEmpty {
                             ProgressView()
                                 .controlSize(.small)
                             Text("Checking...")
@@ -583,23 +584,23 @@ struct SettingsPane: View {
                                 .foregroundStyle(.secondary)
                         } else {
                             Button {
-                                Task { await model.checkForUpdates() }
+                                Task { await rootModel.checkForUpdates() }
                             } label: {
                                 Label("Check for Updates", systemImage: "arrow.triangle.2.circlepath")
                             }
-                            .disabled(model.updateState == .loading)
+                            .disabled(rootModel.updateState == .loading)
                         }
                     }
 
-                    if !model.latestVersion.isEmpty {
+                    if !rootModel.latestVersion.isEmpty {
                         HStack(spacing: 12) {
-                            Text("New version \(model.latestVersion) available")
+                            Text("New version \(rootModel.latestVersion) available")
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(.orange)
 
-                            if model.updateState == .ready {
+                            if rootModel.updateState == .ready {
                                 Button {
-                                    Task { await model.performUpdate() }
+                                    Task { await rootModel.performUpdate() }
                                 } label: {
                                     Label("Update Now", systemImage: "arrow.down.circle")
                                 }
@@ -607,19 +608,19 @@ struct SettingsPane: View {
                             }
                         }
 
-                        if !model.updateProgress.isEmpty {
+                        if !rootModel.updateProgress.isEmpty {
                             VStack(alignment: .leading, spacing: 6) {
                                 HStack(spacing: 8) {
-                                    if model.updateState == .loading {
+                                    if rootModel.updateState == .loading {
                                         ProgressView()
                                             .controlSize(.small)
                                     }
-                                    Text(model.updateProgress)
+                                    Text(rootModel.updateProgress)
                                         .font(.system(size: 12))
                                         .foregroundStyle(.secondary)
                                 }
-                                if model.updateDownloadPercent > 0 && model.updateDownloadPercent < 1 {
-                                    ProgressView(value: model.updateDownloadPercent, total: 1.0)
+                                if rootModel.updateDownloadPercent > 0 && rootModel.updateDownloadPercent < 1 {
+                                    ProgressView(value: rootModel.updateDownloadPercent, total: 1.0)
                                         .tint(.accentColor)
                                 }
                             }
@@ -627,7 +628,7 @@ struct SettingsPane: View {
                         }
                     }
 
-                    if case let .failed(message) = model.updateState {
+                    if case let .failed(message) = rootModel.updateState {
                         Text(message)
                             .font(.system(size: 12))
                             .foregroundStyle(.red)
@@ -637,7 +638,7 @@ struct SettingsPane: View {
                 Divider()
 
                 LabeledContent("Bundled runtime") {
-                    Text(model.runtime.root.path)
+                    Text(rootModel.runtime.root.path)
                         .textSelection(.enabled)
                         .foregroundStyle(.secondary)
                         .font(.system(size: 12, design: .monospaced))
@@ -645,7 +646,7 @@ struct SettingsPane: View {
 
                 VStack(alignment: .leading, spacing: 10) {
                     SectionHeader(title: "Runtime Checks", icon: "checklist")
-                    ForEach(model.runtime.runtimeChecks()) { check in
+                    ForEach(rootModel.runtime.runtimeChecks()) { check in
                         HStack(alignment: .firstTextBaseline, spacing: 8) {
                             Image(systemName: check.isAvailable ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                                 .foregroundStyle(check.isAvailable ? .green : .orange)
@@ -665,7 +666,7 @@ struct SettingsPane: View {
                 Divider()
 
                 Button {
-                    model.installUserCLI()
+                    rootModel.installUserCLI()
                 } label: {
                     Label("Install `mo` in ~/.local/bin", systemImage: "terminal")
                 }
@@ -676,7 +677,7 @@ struct SettingsPane: View {
 
                 Divider()
 
-                ActivityList(lines: model.activity)
+                ActivityList(lines: rootModel.activity)
             }
         }
     }
@@ -796,19 +797,20 @@ struct UpdateBanner: View {
 }
 
 struct FullDiskAccessBanner: View {
-    @EnvironmentObject private var model: MoleAppModel
+    @EnvironmentObject private var statusVM: StatusViewModel
+    @EnvironmentObject private var rootModel: RootModel
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
-                Image(systemName: model.isAdmin ? "checkmark.shield.fill" : "lock.shield")
+                Image(systemName: statusVM.isAdmin ? "checkmark.shield.fill" : "lock.shield")
                     .font(.system(size: 16))
-                    .foregroundStyle(model.isAdmin ? .green : .orange)
-                Text(model.isAdmin ? "Admin Access Granted" : "Admin Access Required")
+                    .foregroundStyle(statusVM.isAdmin ? .green : .orange)
+                Text(statusVM.isAdmin ? "Admin Access Granted" : "Admin Access Required")
                     .font(.system(size: 14, weight: .semibold))
             }
 
-            if model.isAdmin {
+            if statusVM.isAdmin {
                 Text("Mole is running with administrator privileges. All features are available.")
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
@@ -819,7 +821,7 @@ struct FullDiskAccessBanner: View {
 
                 HStack(spacing: 12) {
                     Button {
-                        model.requestAdmin()
+                        rootModel.requestAdmin()
                     } label: {
                         Label("Authenticate as Admin", systemImage: "lock.open")
                             .font(.system(size: 13, weight: .medium))
@@ -839,8 +841,8 @@ struct FullDiskAccessBanner: View {
             }
         }
         .padding(16)
-        .background(model.isAdmin ? Color.green.opacity(0.06) : Color.orange.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).stroke(model.isAdmin ? Color.green.opacity(0.15) : Color.orange.opacity(0.15), lineWidth: 1))
+        .background(statusVM.isAdmin ? Color.green.opacity(0.06) : Color.orange.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).stroke(statusVM.isAdmin ? Color.green.opacity(0.15) : Color.orange.opacity(0.15), lineWidth: 1))
     }
 }
 
