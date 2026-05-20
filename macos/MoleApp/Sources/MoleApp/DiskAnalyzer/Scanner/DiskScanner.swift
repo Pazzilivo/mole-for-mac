@@ -123,25 +123,15 @@ final class DiskScanner {
         try await withThrowingTaskGroup(of: ScanItem?.self) { group in
             for item in contents {
                 let fullPath = (path as NSString).appendingPathComponent(item)
-                var isDir: ObjCBool = false
 
-                guard fileManager.fileExists(atPath: fullPath, isDirectory: &isDir) else {
-                    continue
-                }
-
-                // MED-1 fix: Check for symbolic link to prevent infinite loops
-                var isSymlink: ObjCBool = false
-                if fileManager.fileExists(atPath: fullPath, isDirectory: &isDir) {
-                    // Use lstat to check for symbolic links (doesn't follow symlinks)
-                    var stat = stat()
-                    if lstat(fullPath, &stat) == 0 {
-                        let isLink = (stat.st_mode & S_IFMT) == S_IFLNK
-                        isSymlink = ObjCBool(isLink)
-                    }
-                }
+                // Single lstat to determine isDir and isSymlink (replaces 3 stat calls)
+                var st = stat()
+                guard lstat(fullPath, &st) == 0 else { continue }
+                let isDir = (st.st_mode & S_IFMT) == S_IFDIR
+                let isSymlink = (st.st_mode & S_IFMT) == S_IFLNK
 
                 // If it's a symlink, only count the symlink itself, don't recurse
-                if isSymlink.boolValue {
+                if isSymlink {
                     let symlinkSize = self.getActualFileSize(path: fullPath)
                     if symlinkSize > 0 {
                         totalSize += symlinkSize
@@ -151,7 +141,7 @@ final class DiskScanner {
                     continue
                 }
 
-                if isDir.boolValue {
+                if isDir {
                     // Directory handling
                     if shouldSkip(name: item, path: fullPath) {
                         continue
@@ -346,8 +336,28 @@ final class DiskScanner {
         }
     }
 
-    /// Call mdls to get file last access time
+    /// Get file last access time (native API first, mdls fallback)
     func getMDLSLastAccess(path: String) async -> Date? {
+        // Try native URL.resourceValues first (fast, no fork)
+        if let date = getLastAccessNative(path: path) {
+            return date
+        }
+
+        // Fallback to mdls process
+        return await getMDLSLastAccessViaProcess(path: path)
+    }
+
+    private func getLastAccessNative(path: String) -> Date? {
+        let url = URL(fileURLWithPath: path)
+        if let values = try? url.resourceValues(forKeys: [.contentAccessDateKey]),
+           let date = values.contentAccessDate {
+            return date
+        }
+        return nil
+    }
+
+    /// Call mdls to get file last access time (fallback)
+    private func getMDLSLastAccessViaProcess(path: String) async -> Date? {
         await withCheckedContinuation { continuation in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/mdls")

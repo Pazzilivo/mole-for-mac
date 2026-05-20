@@ -69,19 +69,37 @@ actor AppDiscovery {
             }
         }
 
+        // Try native PropertyListSerialization (fast, no fork)
+        if let bundleId = resolveBundleIdNative(for: appPath) {
+            return bundleId
+        }
+
         // Fallback to plutil
         return await getBundleIdViaPlist(for: appPath)
+    }
+
+    private func resolveBundleIdNative(for appURL: URL) -> String? {
+        let plistPath = appURL.appendingPathComponent("Contents/Info.plist")
+        guard let data = try? Data(contentsOf: plistPath),
+              let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any],
+              let bundleId = plist["CFBundleIdentifier"] as? String else {
+            return nil
+        }
+        return bundleId
     }
 
     /// Resolve display name for an app
     func resolveDisplayName(for appPath: URL, appName: String) async -> String {
         var displayName = appName
 
-        // Try to get localized display name from metadata
-        if let mdName = await getDisplayNameFromMetadata(appPath) {
-            displayName = mdName
+        // Try native PropertyListSerialization first (fast, no fork)
+        if let nativeName = resolveDisplayNameNative(for: appPath) {
+            displayName = nativeName
         } else if let bundleName = await getDisplayNameFromBundle(appPath) {
             displayName = bundleName
+        } else if let mdName = await getDisplayNameFromMetadata(appPath) {
+            // Fallback to mdls
+            displayName = mdName
         }
 
         // Clean up display name
@@ -241,27 +259,33 @@ actor AppDiscovery {
 
     private func createAppInfo(from path: URL) async throws -> AppInfo? {
         let appName = path.lastPathComponent
-        let bundleId = await resolveBundleId(for: path) ?? "unknown.\(appName.replacingOccurrences(of: ".app", with: ""))"
 
-        let displayName = await resolveDisplayName(for: path, appName: appName)
-        let version = await getAppVersion(for: path)
-        let metadata = await collectMetadata(for: path)
+        async let resolvedBundleId = resolveBundleId(for: path)
+        async let displayName = resolveDisplayName(for: path, appName: appName)
+        async let version = getAppVersion(for: path)
+        async let metadata = collectMetadata(for: path)
+        async let caskName = brewIntegration.getCaskName(for: path)
+        async let bgOnly = isBackgroundOnly(path)
 
-        let caskName = await brewIntegration.getCaskName(for: path)
-        let isBrewCask = caskName != nil
+        let bundleId = await resolvedBundleId ?? "unknown.\(appName.replacingOccurrences(of: ".app", with: ""))"
+        let resolvedDisplayName = await displayName
+        let resolvedVersion = await version
+        let resolvedMetadata = await metadata
+        let resolvedCaskName = await caskName
+        let isBackgroundOnly = await bgOnly
 
+        let isBrewCask = resolvedCaskName != nil
         let isSystemApp = path.path.starts(with: "/System/")
-        let isBackgroundOnly = await isBackgroundOnly(path)
 
         return AppInfo(
             id: bundleId,
-            name: displayName,
+            name: resolvedDisplayName,
             path: path,
-            version: version,
-            size: metadata.size,
-            lastUsed: metadata.lastUsed,
+            version: resolvedVersion,
+            size: resolvedMetadata.size,
+            lastUsed: resolvedMetadata.lastUsed,
             isBrewCask: isBrewCask,
-            brewCaskName: caskName,
+            brewCaskName: resolvedCaskName,
             isSystemApp: isSystemApp,
             isBackgroundOnly: isBackgroundOnly
         )
@@ -303,6 +327,15 @@ actor AppDiscovery {
                 }
             }
         }
+    }
+
+    private func resolveDisplayNameNative(for appURL: URL) -> String? {
+        let plistPath = appURL.appendingPathComponent("Contents/Info.plist")
+        guard let data = try? Data(contentsOf: plistPath),
+              let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil) as? [String: Any] else {
+            return nil
+        }
+        return plist["CFBundleDisplayName"] as? String ?? plist["CFBundleName"] as? String
     }
 
     private func getDisplayNameFromMetadata(_ appPath: URL) async -> String? {
@@ -377,6 +410,24 @@ actor AppDiscovery {
     }
 
     private func getLastUsedDate(for appPath: URL) async -> Date? {
+        // Try native URL.resourceValues first (fast, no fork)
+        if let date = getLastUsedDateNative(for: appPath) {
+            return date
+        }
+
+        // Fallback to mdls
+        return await getLastUsedDateViaMdls(for: appPath)
+    }
+
+    private func getLastUsedDateNative(for url: URL) -> Date? {
+        if let values = try? url.resourceValues(forKeys: [.contentAccessDateKey]),
+           let date = values.contentAccessDate {
+            return date
+        }
+        return nil
+    }
+
+    private func getLastUsedDateViaMdls(for appPath: URL) async -> Date? {
         return await withCheckedContinuation { continuation in
             DispatchQueue.global(qos: .userInitiated).async {
                 let task = Process()
