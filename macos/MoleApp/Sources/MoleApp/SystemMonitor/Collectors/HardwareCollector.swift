@@ -4,9 +4,8 @@ import CoreGraphics
 final class HardwareCollector: MetricCollector {
     typealias Output = HardwareStatus
 
-    private var cache: HardwareStatus?
-    private var cacheTime: Date = .distantPast
-    private let cacheTTL: TimeInterval = 600 // 10 minutes
+    // Hardware info never changes at runtime — cache permanently
+    private var cachedResult: HardwareStatus?
 
     private let marketingNameMap: [String: String] = [
         // MacBook Air
@@ -54,9 +53,7 @@ final class HardwareCollector: MetricCollector {
     ]
 
     func collect(totalRAM: UInt64, diskSize: UInt64) -> HardwareStatus {
-        // Check cache
-        if let cached = cache,
-           Date().timeIntervalSince(cacheTime) < cacheTTL {
+        if let cached = cachedResult {
             return cached
         }
 
@@ -69,10 +66,7 @@ final class HardwareCollector: MetricCollector {
             refreshRate: String(format: "%.0fHz", getRefreshRate() ?? 60)
         )
 
-        // Update cache
-        cache = status
-        cacheTime = Date()
-
+        cachedResult = status
         return status
     }
 

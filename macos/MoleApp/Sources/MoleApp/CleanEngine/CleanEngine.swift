@@ -157,21 +157,23 @@ actor CleanEngine {
     }
 
     // MARK: - Private Methods
-    private func scan(_ path: String) async -> [CleanItem] {
+    private let maxDepth = 8
+
+    private func scan(_ path: String, depth: Int = 0) async -> [CleanItem] {
+        guard depth < maxDepth else { return [] }
+
         var targets: [CleanItem] = []
 
-        // Validate path first
-        let validation = await pathValidator.validate(path)
-        guard validation.canProceed else {
+        // Batch validate + inspect (2 actor hops instead of 4)
+        let check = await pathValidator.validateAndInspect(path)
+        guard check.canProceed else {
             return []
         }
 
-        // Check if path exists
         guard FileManager.default.fileExists(atPath: path) else {
             return []
         }
 
-        // Inspect the path
         guard let inspection = await pathValidator.inspect(path) else {
             return []
         }
@@ -180,7 +182,6 @@ actor CleanEngine {
         let isProtected = await protectionManager.shouldProtectPath(path, mode: configuration.mode)
         let isWhitelisted = configuration.respectWhitelist ? await whitelistManager.isWhitelisted(path) : false
 
-        // Create target
         let target = CleanItem(
             path: path,
             size: inspection.size,
@@ -194,16 +195,15 @@ actor CleanEngine {
 
         targets.append(target)
 
-        // If directory, scan contents
-        if inspection.type == .directory {
-            let contentsTargets = await scanDirectoryContents(path)
+        if check.isDir {
+            let contentsTargets = await scanDirectoryContents(path, depth: depth)
             targets.append(contentsOf: contentsTargets)
         }
 
         return targets
     }
 
-    private func scanDirectoryContents(_ path: String) async -> [CleanItem] {
+    private func scanDirectoryContents(_ path: String, depth: Int) async -> [CleanItem] {
         var targets: [CleanItem] = []
 
         do {
@@ -214,7 +214,7 @@ actor CleanEngine {
             )
 
             for item in contents {
-                let itemTargets = await scan(item.path)
+                let itemTargets = await scan(item.path, depth: depth + 1)
                 targets.append(contentsOf: itemTargets)
             }
         } catch {

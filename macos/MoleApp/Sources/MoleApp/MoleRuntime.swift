@@ -568,10 +568,23 @@ final class MoleAppModel: ObservableObject {
         guard FileManager.default.fileExists(atPath: url.path) else {
             return []
         }
-        let content = try String(contentsOf: url, encoding: .utf8)
-        let lines = content
-            .split(separator: "\n", omittingEmptySubsequences: false)
-            .map(String.init)
+
+        let handle = try FileHandle(forReadingFrom: url)
+        defer { try? handle.close() }
+
+        let fileSize = try handle.seekToEnd()
+        let readSize = min(fileSize, 32 * 1024)  // max 32KB
+        try handle.seek(toOffset: fileSize - readSize)
+
+        let data = try handle.readToEnd() ?? Data()
+        let content = String(data: data, encoding: .utf8) ?? ""
+        var lines = content.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
+
+        // First line may be incomplete if we truncated mid-line
+        if fileSize > readSize && !lines.isEmpty {
+            lines.removeFirst()
+        }
+
         return Array(lines.suffix(maxLines)).filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
     }
 

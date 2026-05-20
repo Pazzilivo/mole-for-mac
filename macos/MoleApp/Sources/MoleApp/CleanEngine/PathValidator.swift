@@ -176,6 +176,14 @@ actor PathValidator {
         }
     }
 
+    // MARK: - Batch Validation + Inspection (reduces actor hops)
+    func validateAndInspect(_ path: String) -> (canProceed: Bool, isDir: Bool) {
+        let validation = validate(path)
+        guard validation.canProceed else { return (false, false) }
+        guard let inspection = inspect(path) else { return (false, false) }
+        return (true, inspection.type == .directory)
+    }
+
     // MARK: - Public Utilities
     func inspect(_ path: String) -> PathInspectionResult? {
         guard let attributes = try? FileManager.default.attributesOfItem(atPath: path) else {
