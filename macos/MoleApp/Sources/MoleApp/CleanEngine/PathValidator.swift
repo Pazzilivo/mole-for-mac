@@ -177,11 +177,11 @@ actor PathValidator {
     }
 
     // MARK: - Batch Validation + Inspection (reduces actor hops)
-    func validateAndInspect(_ path: String) -> (canProceed: Bool, isDir: Bool) {
+    func validateAndInspect(_ path: String) -> (canProceed: Bool, isDir: Bool, inspection: PathInspectionResult?) {
         let validation = validate(path)
-        guard validation.canProceed else { return (false, false) }
-        guard let inspection = inspect(path) else { return (false, false) }
-        return (true, inspection.type == .directory)
+        guard validation.canProceed else { return (false, false, nil) }
+        guard let inspection = inspect(path) else { return (false, false, nil) }
+        return (true, inspection.type == .directory, inspection)
     }
 
     // MARK: - Public Utilities

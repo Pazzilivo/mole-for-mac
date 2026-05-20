@@ -164,17 +164,9 @@ actor CleanEngine {
 
         var targets: [CleanItem] = []
 
-        // Batch validate + inspect (2 actor hops instead of 4)
+        // Batch validate + inspect (reduces actor hops from 4 to 3)
         let check = await pathValidator.validateAndInspect(path)
-        guard check.canProceed else {
-            return []
-        }
-
-        guard FileManager.default.fileExists(atPath: path) else {
-            return []
-        }
-
-        guard let inspection = await pathValidator.inspect(path) else {
+        guard check.canProceed, let inspection = check.inspection else {
             return []
         }
 
