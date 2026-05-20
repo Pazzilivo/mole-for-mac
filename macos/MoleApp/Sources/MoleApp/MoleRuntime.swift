@@ -60,54 +60,29 @@ final class MoleRuntime {
     }
 }
 
-@MainActor
-final class MoleAppModel: ObservableObject {
-    @Published var statusState: LoadState = .idle
-    @Published var appsState: LoadState = .idle
-    @Published var analyzeState: LoadState = .idle
-    @Published var optimizeState: LoadState = .idle
-    @Published var logsState: LoadState = .idle
+// MARK: - StatusViewModel
 
+@MainActor
+final class StatusViewModel: ObservableObject {
+    @Published var statusState: LoadState = .idle
     @Published var hasFullDiskAccess: Bool = true
     @Published var isAdmin: Bool = false
-    @Published var analyzeProgress: String = ""
-
-    @Published var cleanState: LoadState = .idle
-    @Published var cleanProgress: String = ""
-    @Published var cleanOutput: String = ""
-    @Published var cleanCategories: [CleanCategory] = []
-
-    @Published var uninstallState: LoadState = .idle
-    @Published var uninstallProgress: String = ""
-
-    @Published var cleanTotalSize: String = "--"
-
-    @Published var updateState: LoadState = .idle
-    @Published var latestVersion: String = ""
-    @Published var updateProgress: String = ""
-    @Published var updateDownloadPercent: Double = 0
-    private var updateDownloadURL: String = ""
-
     @Published var status: StatusSnapshot?
-    @Published var apps: [AppEntry] = []
-    @Published var analysis: AnalyzeOutput?
-    @Published var optimizePlan: OptimizePlan?
-    @Published var activity: [ActivityLine] = []
-    @Published var operationLog: [OperationLogEntry] = []
-    @Published var deletionLog: [DeletionLogEntry] = []
 
-    let runtime = MoleRuntime()
     private let systemMonitor = SystemMonitor()
-    private let uninstallEngine = UninstallEngine()
-    private let diskScanner = DiskScanner()
-    private let cacheCleaner = AppCacheCleaner()
-    private var useSudo: Bool { false }
 
-    func refreshDashboard() async {
-        checkFullDiskAccess()
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { await self.refreshStatus() }
-            group.addTask { await self.refreshApps() }
+    var onActivity: ((_ title: String, _ detail: String, _ isError: Bool) -> Void)?
+
+    func refreshStatus() async {
+        statusState = .loading
+        do {
+            let metrics = try await systemMonitor.collect()
+            status = StatusAdapter.convert(metrics)
+            statusState = .ready
+            onActivity?("Status refreshed", "System metrics collected natively.", false)
+        } catch {
+            statusState = .failed(error.localizedDescription)
+            onActivity?("Status unavailable", error.localizedDescription, true)
         }
     }
 
@@ -117,42 +92,24 @@ final class MoleAppModel: ObservableObject {
         hasFullDiskAccess = FileManager.default.isReadableFile(atPath: testPath.path)
     }
 
-    func requestAdmin() {
-        let script = NSAppleScript(source: """
-        do shell script "sudo -v" with administrator privileges
-        """)
-        var error: NSDictionary?
-        script?.executeAndReturnError(&error)
-        if error == nil {
-            isAdmin = true
-            checkFullDiskAccess()
-            // Keep sudo session alive
-            startSudoKeeper()
-            Task { await refreshDashboard() }
-        }
+    /// Expose SystemMonitor for shared use (e.g. optimize plan)
+    func collectMetrics() async throws -> SystemMetrics {
+        return try await systemMonitor.collect()
     }
+}
 
-    private func startSudoKeeper() {
-        Timer.scheduledTimer(withTimeInterval: 240, repeats: true) { _ in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
-            process.arguments = ["-n", "-v"]
-            try? process.run()
-        }
-    }
+// MARK: - UninstallViewModel
 
-    func refreshStatus() async {
-        statusState = .loading
-        do {
-            let metrics = try await systemMonitor.collect()
-            status = StatusAdapter.convert(metrics)
-            statusState = .ready
-            append("Status refreshed", detail: "System metrics collected natively.")
-        } catch {
-            statusState = .failed(error.localizedDescription)
-            append("Status unavailable", detail: error.localizedDescription, isError: true)
-        }
-    }
+@MainActor
+final class UninstallViewModel: ObservableObject {
+    @Published var appsState: LoadState = .idle
+    @Published var apps: [AppEntry] = []
+    @Published var uninstallState: LoadState = .idle
+    @Published var uninstallProgress: String = ""
+
+    private let uninstallEngine = UninstallEngine()
+
+    var onActivity: ((_ title: String, _ detail: String, _ isError: Bool) -> Void)?
 
     func refreshApps() async {
         appsState = .loading
@@ -160,26 +117,10 @@ final class MoleAppModel: ObservableObject {
             let discovered = try await uninstallEngine.listApps()
             apps = AppListAdapter.convert(discovered)
             appsState = .ready
-            append("Applications scanned", detail: "\(apps.count) apps found.")
+            onActivity?("Applications scanned", "\(apps.count) apps found.", false)
         } catch {
             appsState = .failed(error.localizedDescription)
-            append("Application scan failed", detail: error.localizedDescription, isError: true)
-        }
-    }
-
-    func analyzeHome() async {
-        analyzeState = .loading
-        analyzeProgress = ""
-        do {
-            let home = FileManager.default.homeDirectoryForCurrentUser.path
-            analyzeProgress = "Scanning \(home)..."
-            let scanResult = try await diskScanner.scan(path: home)
-            analysis = AnalysisAdapter.convert(scanResult, path: home)
-            analyzeState = .ready
-            append("Home analyzed", detail: "Disk scan finished for \(home).")
-        } catch {
-            analyzeState = .failed(error.localizedDescription)
-            append("Disk analysis failed", detail: error.localizedDescription, isError: true)
+            onActivity?("Application scan failed", error.localizedDescription, true)
         }
     }
 
@@ -193,7 +134,7 @@ final class MoleAppModel: ObservableObject {
             guard let matched = apps.first(where: { $0.id == app.bundleID || $0.name == appName }) else {
                 uninstallState = .failed("App not found: \(appName)")
                 uninstallProgress = ""
-                append("Uninstall failed", detail: "App not found: \(appName)", isError: true)
+                onActivity?("Uninstall failed", "App not found: \(appName)", true)
                 return
             }
 
@@ -203,14 +144,29 @@ final class MoleAppModel: ObservableObject {
 
             uninstallState = .idle
             uninstallProgress = ""
-            append("Uninstalled \(appName)", detail: "App and leftovers moved to Trash.")
+            onActivity?("Uninstalled \(appName)", "App and leftovers moved to Trash.", false)
             await refreshApps()
         } catch {
             uninstallState = .failed(error.localizedDescription)
             uninstallProgress = ""
-            append("Uninstall failed", detail: error.localizedDescription, isError: true)
+            onActivity?("Uninstall failed", error.localizedDescription, true)
         }
     }
+}
+
+// MARK: - CleanViewModel
+
+@MainActor
+final class CleanViewModel: ObservableObject {
+    @Published var cleanState: LoadState = .idle
+    @Published var cleanProgress: String = ""
+    @Published var cleanOutput: String = ""
+    @Published var cleanCategories: [CleanCategory] = []
+    @Published var cleanTotalSize: String = "--"
+
+    private let cacheCleaner = AppCacheCleaner()
+
+    var onActivity: ((_ title: String, _ detail: String, _ isError: Bool) -> Void)?
 
     func runCleanScan() async {
         cleanState = .loading
@@ -229,11 +185,11 @@ final class MoleAppModel: ObservableObject {
             cleanTotalSize = ByteCountFormatter.string(fromByteCount: Int64(totalBytes), countStyle: .file)
             cleanCategories = categories
             cleanState = .ready
-            append("Clean scan finished", detail: "Found \(cleanCategories.count) categories, \(cleanTotalSize) reclaimable.")
+            onActivity?("Clean scan finished", "Found \(cleanCategories.count) categories, \(cleanTotalSize) reclaimable.", false)
         } catch {
             cleanProgress = ""
             cleanState = .failed(error.localizedDescription)
-            append("Clean scan failed", detail: error.localizedDescription, isError: true)
+            onActivity?("Clean scan failed", error.localizedDescription, true)
         }
     }
 
@@ -247,11 +203,11 @@ final class MoleAppModel: ObservableObject {
             cleanProgress = ""
             cleanOutput = ""
             cleanState = .idle
-            append("Clean completed", detail: "Cleanup finished successfully.")
+            onActivity?("Clean completed", "Cleanup finished successfully.", false)
         } catch {
             cleanProgress = ""
             cleanState = .failed(error.localizedDescription)
-            append("Clean failed", detail: error.localizedDescription, isError: true)
+            onActivity?("Clean failed", error.localizedDescription, true)
         }
     }
 
@@ -272,11 +228,126 @@ final class MoleAppModel: ObservableObject {
         default: return Int64(value)
         }
     }
+}
+
+// MARK: - AnalyzeViewModel
+
+@MainActor
+final class AnalyzeViewModel: ObservableObject {
+    @Published var analyzeState: LoadState = .idle
+    @Published var analyzeProgress: String = ""
+    @Published var analysis: AnalyzeOutput?
+
+    private let diskScanner = DiskScanner()
+
+    var onActivity: ((_ title: String, _ detail: String, _ isError: Bool) -> Void)?
+
+    func analyzeHome() async {
+        analyzeState = .loading
+        analyzeProgress = ""
+        do {
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            analyzeProgress = "Scanning \(home)..."
+            let scanResult = try await diskScanner.scan(path: home)
+            analysis = AnalysisAdapter.convert(scanResult, path: home)
+            analyzeState = .ready
+            onActivity?("Home analyzed", "Disk scan finished for \(home).", false)
+        } catch {
+            analyzeState = .failed(error.localizedDescription)
+            onActivity?("Disk analysis failed", error.localizedDescription, true)
+        }
+    }
+}
+
+// MARK: - RootModel
+
+@MainActor
+final class RootModel: ObservableObject {
+    @Published var optimizeState: LoadState = .idle
+    @Published var optimizePlan: OptimizePlan?
+
+    @Published var logsState: LoadState = .idle
+    @Published var operationLog: [OperationLogEntry] = []
+    @Published var deletionLog: [DeletionLogEntry] = []
+
+    @Published var updateState: LoadState = .idle
+    @Published var latestVersion: String = ""
+    @Published var updateProgress: String = ""
+    @Published var updateDownloadPercent: Double = 0
+    private var updateDownloadURL: String = ""
+
+    @Published var activity: [ActivityLine] = []
+
+    let runtime = MoleRuntime()
+    let statusVM: StatusViewModel
+    let uninstallVM: UninstallViewModel
+    let cleanVM: CleanViewModel
+    let analyzeVM: AnalyzeViewModel
+
+    init() {
+        let status = StatusViewModel()
+        let uninstall = UninstallViewModel()
+        let clean = CleanViewModel()
+        let analyze = AnalyzeViewModel()
+
+        self.statusVM = status
+        self.uninstallVM = uninstall
+        self.cleanVM = clean
+        self.analyzeVM = analyze
+
+        status.onActivity = { [weak self] title, detail, isError in
+            self?.append(title, detail: detail, isError: isError)
+        }
+        uninstall.onActivity = { [weak self] title, detail, isError in
+            self?.append(title, detail: detail, isError: isError)
+        }
+        clean.onActivity = { [weak self] title, detail, isError in
+            self?.append(title, detail: detail, isError: isError)
+        }
+        analyze.onActivity = { [weak self] title, detail, isError in
+            self?.append(title, detail: detail, isError: isError)
+        }
+    }
+
+    var currentVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
+    }
+
+    func refreshDashboard() async {
+        statusVM.checkFullDiskAccess()
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await self.statusVM.refreshStatus() }
+            group.addTask { await self.uninstallVM.refreshApps() }
+        }
+    }
+
+    func requestAdmin() {
+        let script = NSAppleScript(source: """
+        do shell script "sudo -v" with administrator privileges
+        """)
+        var error: NSDictionary?
+        script?.executeAndReturnError(&error)
+        if error == nil {
+            statusVM.isAdmin = true
+            statusVM.checkFullDiskAccess()
+            startSudoKeeper()
+            Task { await refreshDashboard() }
+        }
+    }
+
+    private func startSudoKeeper() {
+        Timer.scheduledTimer(withTimeInterval: 240, repeats: true) { _ in
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/sudo")
+            process.arguments = ["-n", "-v"]
+            try? process.run()
+        }
+    }
 
     func refreshOptimizePlan() async {
         optimizeState = .loading
         do {
-            let metrics = try await systemMonitor.collect()
+            let metrics = try await statusVM.collectMetrics()
 
             let memoryUsedGB = Double(metrics.memory.used) / 1_073_741_824.0
             let memoryTotalGB = Double(metrics.memory.total) / 1_073_741_824.0
@@ -317,10 +388,6 @@ final class MoleAppModel: ObservableObject {
             logsState = .failed(error.localizedDescription)
             append("Log refresh failed", detail: error.localizedDescription, isError: true)
         }
-    }
-
-    var currentVersion: String {
-        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "0.0.0"
     }
 
     func checkForUpdates() async {
@@ -451,7 +518,6 @@ final class MoleAppModel: ObservableObject {
             try? FileManager.default.removeItem(at: zipURL)
             try? FileManager.default.removeItem(at: updateDir)
 
-            // Download with progress using delegate + continuation
             let zipLocation: URL = try await withCheckedThrowingContinuation { continuation in
                 let delegate = UpdateDownloadDelegate { [weak self] percent in
                     Task { @MainActor in
@@ -472,7 +538,6 @@ final class MoleAppModel: ObservableObject {
             }
 
             updateProgress = "Download complete"
-            // zipLocation is already safely moved by the delegate
             try FileManager.default.moveItem(at: zipLocation, to: zipURL)
 
             updateProgress = "Extracting..."
@@ -496,7 +561,6 @@ final class MoleAppModel: ObservableObject {
             let newAppDest = currentApp.deletingLastPathComponent().appendingPathComponent(currentAppName)
             let myPID = ProcessInfo.processInfo.processIdentifier
 
-            // Write a shell script that waits for this process to exit, then replaces and relaunches
             let scriptURL = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("Mole-relink.sh")
             let script = """
             #!/bin/bash
@@ -525,7 +589,6 @@ final class MoleAppModel: ObservableObject {
 
             updateProgress = "Restarting..."
 
-            // Use nohup to fully detach the script from this process
             let runner = Process()
             runner.executableURL = URL(fileURLWithPath: "/usr/bin/nohup")
             runner.arguments = ["/bin/bash", scriptURL.path]
@@ -682,7 +745,6 @@ private final class UpdateDownloadDelegate: NSObject, URLSessionDownloadDelegate
     }
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
-        // The temp file is deleted after this method returns, so move it immediately
         let dest = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("Mole-update.tmp")
         try? FileManager.default.removeItem(at: dest)
         do {
