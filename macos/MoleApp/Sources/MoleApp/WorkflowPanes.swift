@@ -3,26 +3,26 @@ import SwiftUI
 private let compatiblePaneFill = Color.secondary.opacity(0.08)
 
 struct CleanPane: View {
-    @EnvironmentObject private var model: MoleAppModel
+    @EnvironmentObject private var cleanVM: CleanViewModel
     @State private var showCleanConfirmation = false
 
     private var targetCount: Int {
-        model.cleanCategories.reduce(0) { $0 + $1.targets.count }
+        cleanVM.cleanCategories.reduce(0) { $0 + $1.targets.count }
     }
 
     private var itemCount: Int {
-        model.cleanCategories.reduce(0) { total, category in
+        cleanVM.cleanCategories.reduce(0) { total, category in
             total + category.targets.reduce(0) { $0 + max($1.itemCount, 1) }
         }
     }
 
     private var highestRisk: CleanRiskLevel {
-        model.cleanCategories.map(\.risk).max(by: { $0.severity < $1.severity }) ?? .low
+        cleanVM.cleanCategories.map(\.risk).max(by: { $0.severity < $1.severity }) ?? .low
     }
 
     private var riskCounts: [(CleanRiskLevel, Int)] {
         CleanRiskLevel.allCases.map { risk in
-            (risk, model.cleanCategories.flatMap(\.targets).filter { $0.risk == risk }.count)
+            (risk, cleanVM.cleanCategories.flatMap(\.targets).filter { $0.risk == risk }.count)
         }
     }
 
@@ -30,18 +30,18 @@ struct CleanPane: View {
         Workspace(title: "Clean", subtitle: "Scan and remove caches, logs, temp files, and app leftovers.") {
             HStack {
                 Button {
-                    Task { await model.runCleanScan() }
+                    Task { await cleanVM.runCleanScan() }
                 } label: {
-                    Label(model.cleanState == .loading ? "Scanning..." : "Scan", systemImage: "magnifyingglass")
+                    Label(cleanVM.cleanState == .loading ? "Scanning..." : "Scan", systemImage: "magnifyingglass")
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(model.cleanState == .loading)
+                .disabled(cleanVM.cleanState == .loading)
 
-                if model.cleanState == .loading {
+                if cleanVM.cleanState == .loading {
                     HStack(spacing: 10) {
                         ProgressView()
                             .controlSize(.small)
-                        Text(model.cleanProgress.isEmpty ? "Scanning cleanup candidates..." : model.cleanProgress)
+                        Text(cleanVM.cleanProgress.isEmpty ? "Scanning cleanup candidates..." : cleanVM.cleanProgress)
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
@@ -50,7 +50,7 @@ struct CleanPane: View {
 
                 Spacer()
 
-                if model.cleanState == .ready {
+                if cleanVM.cleanState == .ready {
                     Button {
                         showCleanConfirmation = true
                     } label: {
@@ -58,17 +58,17 @@ struct CleanPane: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.red)
-                    .disabled(model.cleanState == .loading)
+                    .disabled(cleanVM.cleanState == .loading)
                 }
             }
 
-            if case let .failed(message) = model.cleanState {
+            if case let .failed(message) = cleanVM.cleanState {
                 ErrorBanner(message: message)
             }
 
-            if model.cleanState == .loading && !model.cleanOutput.isEmpty {
+            if cleanVM.cleanState == .loading && !cleanVM.cleanOutput.isEmpty {
                 ScrollView {
-                    Text(model.cleanOutput)
+                    Text(cleanVM.cleanOutput)
                         .font(.system(size: 12, design: .monospaced))
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
@@ -77,29 +77,29 @@ struct CleanPane: View {
                 .frame(minHeight: 300)
             }
 
-            if !model.cleanCategories.isEmpty {
+            if !cleanVM.cleanCategories.isEmpty {
                 VStack(alignment: .leading, spacing: 16) {
                     SectionHeader(title: "Deletion Plan", icon: "list.bullet.clipboard")
 
                     HStack(spacing: 16) {
                         MetricStrip(items: [
-                            ("Categories", "\(model.cleanCategories.count)"),
+                            ("Categories", "\(cleanVM.cleanCategories.count)"),
                             ("Targets", "\(targetCount)"),
                             ("Items", "\(itemCount)"),
-                            ("Reclaimable", model.cleanTotalSize)
+                            ("Reclaimable", cleanVM.cleanTotalSize)
                         ])
                     }
 
                     CleanRiskSummary(highestRisk: highestRisk, counts: riskCounts)
 
                     VStack(alignment: .leading, spacing: 10) {
-                        ForEach(model.cleanCategories) { category in
+                        ForEach(cleanVM.cleanCategories) { category in
                             CleanCategoryDisclosure(category: category)
                         }
                     }
 
                     ScrollView {
-                        Text(model.cleanOutput)
+                        Text(cleanVM.cleanOutput)
                             .font(.system(size: 11, design: .monospaced))
                             .foregroundStyle(.tertiary)
                             .textSelection(.enabled)
@@ -107,7 +107,7 @@ struct CleanPane: View {
                     }
                     .frame(maxHeight: 200)
                 }
-            } else if model.cleanState == .idle {
+            } else if cleanVM.cleanState == .idle {
                 EmptyState(
                     icon: "sparkles",
                     title: "Ready to clean",
@@ -117,11 +117,11 @@ struct CleanPane: View {
         }
         .alert("Clean selected plan?", isPresented: $showCleanConfirmation) {
             Button("Cancel", role: .cancel) {}
-            Button("Clean \(model.cleanTotalSize)", role: .destructive) {
-                Task { await model.runCleanApply() }
+            Button("Clean \(cleanVM.cleanTotalSize)", role: .destructive) {
+                Task { await cleanVM.runCleanApply() }
             }
         } message: {
-            Text("Mole will remove \(targetCount) listed locations across \(model.cleanCategories.count) categories. Highest visible risk: \(highestRisk.title). Review high and medium risk rows before continuing.")
+            Text("Mole will remove \(targetCount) listed locations across \(cleanVM.cleanCategories.count) categories. Highest visible risk: \(highestRisk.title). Review high and medium risk rows before continuing.")
         }
     }
 }
@@ -409,7 +409,7 @@ private struct CleanRiskBadge: View {
 }
 
 struct OptimizePane: View {
-    @EnvironmentObject private var model: MoleAppModel
+    @EnvironmentObject private var rootModel: RootModel
 
     private let plan = PlannedScreen(
         title: "Optimize",
@@ -435,23 +435,23 @@ struct OptimizePane: View {
         Workspace(title: "Optimize", subtitle: "Review system refresh tasks before anything changes.") {
             HStack {
                 Button {
-                    Task { await model.refreshOptimizePlan() }
+                    Task { await rootModel.refreshOptimizePlan() }
                 } label: {
                     Label("Load Plan", systemImage: "list.bullet.clipboard")
                 }
                 .buttonStyle(.borderedProminent)
 
-                if model.optimizeState == .loading {
+                if rootModel.optimizeState == .loading {
                     ProgressView()
                         .controlSize(.small)
                 }
             }
 
-            if case let .failed(message) = model.optimizeState {
+            if case let .failed(message) = rootModel.optimizeState {
                 ErrorBanner(message: message)
             }
 
-            if let optimizePlan = model.optimizePlan {
+            if let optimizePlan = rootModel.optimizePlan {
                 VStack(alignment: .leading, spacing: 16) {
                     MetricStrip(items: [
                         ("Memory", "\(formatGB(optimizePlan.memoryUsedGB)) / \(formatGB(optimizePlan.memoryTotalGB)) GB"),
@@ -555,7 +555,7 @@ enum ArtifactMode: String, CaseIterable, Identifiable {
 }
 
 struct LogsPane: View {
-    @EnvironmentObject private var model: MoleAppModel
+    @EnvironmentObject private var rootModel: RootModel
     @State private var mode: LogMode = .operations
 
     var body: some View {
@@ -570,26 +570,26 @@ struct LogsPane: View {
                 .frame(maxWidth: 300)
 
                 Button {
-                    model.refreshLogs()
+                    rootModel.refreshLogs()
                 } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
             }
 
-            if case let .failed(message) = model.logsState {
+            if case let .failed(message) = rootModel.logsState {
                 ErrorBanner(message: message)
             }
 
             switch mode {
             case .operations:
-                OperationsLogTable(entries: model.operationLog)
+                OperationsLogTable(entries: rootModel.operationLog)
             case .deletions:
-                DeletionsLogTable(entries: model.deletionLog)
+                DeletionsLogTable(entries: rootModel.deletionLog)
             }
         }
         .onAppear {
-            if model.logsState == .idle {
-                model.refreshLogs()
+            if rootModel.logsState == .idle {
+                rootModel.refreshLogs()
             }
         }
     }

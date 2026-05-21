@@ -2,24 +2,28 @@ import SwiftUI
 
 @main
 struct MoleDesktopApp: App {
-    @StateObject private var model = MoleAppModel()
+    @StateObject private var rootModel = RootModel()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
-                .environmentObject(model)
+                .environmentObject(rootModel.statusVM)
+                .environmentObject(rootModel.uninstallVM)
+                .environmentObject(rootModel.cleanVM)
+                .environmentObject(rootModel.analyzeVM)
+                .environmentObject(rootModel)
                 .frame(minWidth: 980, minHeight: 680)
                 .task {
-                    model.checkFullDiskAccess()
-                    await model.refreshDashboard()
-                    Task { await model.checkForUpdates() }
+                    rootModel.statusVM.checkFullDiskAccess()
+                    await rootModel.refreshDashboard()
+                    Task { await rootModel.checkForUpdates() }
                 }
         }
         .windowStyle(.hiddenTitleBar)
         .commands {
             CommandGroup(after: .appInfo) {
                 Button("Refresh") {
-                    Task { await model.refreshDashboard() }
+                    Task { await rootModel.refreshDashboard() }
                 }
                 .keyboardShortcut("r", modifiers: [.command])
             }
@@ -27,7 +31,7 @@ struct MoleDesktopApp: App {
 
         Settings {
             SettingsPane()
-                .environmentObject(model)
+                .environmentObject(rootModel)
                 .frame(width: 560)
         }
     }
