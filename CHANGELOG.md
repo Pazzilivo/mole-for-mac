@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.12.0] - 2026-05-21
+
+### Performance Optimizations (cont.)
+
+- **SwiftUI ViewModel 拆分** (LUC-164)
+  - MoleAppModel 拆分为 4 个专职 ViewModel: StatusModel, CleanModel, UninstallModel, AnalyzeModel
+  - RootModel 统一管理，ContentView 各 Pane 使用独立 @EnvironmentObject
+  - 大幅减少 @Published 属性变更导致的无关 View 重绘
+
 ## [0.11.0] - 2026-05-21
 
 ### Performance Optimizations
