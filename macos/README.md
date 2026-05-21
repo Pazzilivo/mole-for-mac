@@ -32,6 +32,47 @@ If Go is available, the script runs `make build` first so `bin/analyze-go` and
 `bin/status-go` are included. Without Go, the app still builds, but status and
 disk analysis views will report that the bundled Go binaries are missing.
 
+## Package
+
+```bash
+./scripts/package-macos-app.sh
+```
+
+The release package is written to:
+
+```text
+dist/Mole.app.zip
+dist/Mole.app.zip.sha256
+```
+
+The archive keeps `Mole.app` as the top-level item so the built-in updater can
+extract and replace the current app.
+
+## Release
+
+Formal releases are produced by `.github/workflows/release.yml` when a `v*` or
+`V*` tag is pushed to `Pazzilivo/mole-for-mac`. The workflow stamps the app
+version from the tag, packages the native app, verifies the archive, and creates
+the macOS app GitHub Release.
+
+The app updater reads `https://api.github.com/repos/Pazzilivo/mole-for-mac/releases/latest`.
+The workflow publishes versioned app assets matching the existing
+updater-compatible names:
+
+```text
+Mole-<version>.zip
+Mole-<tag>.zip
+```
+
+Local preflight:
+
+```bash
+git status --short --branch
+make verify
+./scripts/package-macos-app.sh
+unzip -t dist/Mole.app.zip
+```
+
 ## Architecture
 
 ```text

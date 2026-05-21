@@ -109,6 +109,7 @@ copy_path "$PROJECT_ROOT/README.md" "$RUNTIME_DIR/README.md"
 chmod +x "$MACOS_DIR/Mole"
 chmod +x "$RUNTIME_DIR/mole" "$RUNTIME_DIR/mo"
 find "$RUNTIME_DIR/bin" -type f -name '*.sh' -exec chmod +x {} +
+find "$APP_DIR" \( -name '.DS_Store' -o -name '._*' \) -delete
 
 if command -v codesign > /dev/null 2>&1; then
     log "Applying local ad-hoc signature..."

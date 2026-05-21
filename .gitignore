@@ -33,6 +33,7 @@ tests/tmp-*
 .gocache/
 .gomod/
 build/
+dist/
 
 # Backup files
 *.bak
