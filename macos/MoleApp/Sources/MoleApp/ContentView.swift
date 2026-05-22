@@ -26,6 +26,25 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .settings: return "gearshape"
         }
     }
+
+    /// Sidebar grouping: main workflow actions vs utility pages.
+    var sidebarGroup: SidebarGroup {
+        switch self {
+        case .overview, .clean, .uninstall, .analyze, .optimize:
+            return .workflow
+        case .artifacts, .logs, .settings:
+            return .tools
+        }
+    }
+}
+
+enum SidebarGroup: String, CaseIterable {
+    case workflow = "Workflow"
+    case tools = "Tools"
+
+    var items: [AppSection] {
+        AppSection.allCases.filter { $0.sidebarGroup == self }
+    }
 }
 
 struct ContentView: View {
@@ -34,9 +53,19 @@ struct ContentView: View {
 
     var body: some View {
         NavigationSplitView {
-            List(AppSection.allCases, selection: $selection) { section in
-                Label(section.rawValue, systemImage: section.systemImage)
-                    .tag(section)
+            List(selection: $selection) {
+                Section(SidebarGroup.workflow.rawValue) {
+                    ForEach(SidebarGroup.workflow.items) { section in
+                        Label(section.rawValue, systemImage: section.systemImage)
+                            .tag(section)
+                    }
+                }
+                Section(SidebarGroup.tools.rawValue) {
+                    ForEach(SidebarGroup.tools.items) { section in
+                        Label(section.rawValue, systemImage: section.systemImage)
+                            .tag(section)
+                    }
+                }
             }
             .navigationTitle("Mole")
             .toolbar {
@@ -46,7 +75,7 @@ struct ContentView: View {
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
-                    .help("Refresh")
+                    .help("Refresh (⌘R)")
                 }
             }
         } detail: {
@@ -80,7 +109,7 @@ struct OverviewPane: View {
     @Binding var selection: AppSection?
 
     var body: some View {
-        Workspace(title: "Overview", subtitle: "System health at a glance.") {
+        Workspace(title: "Overview", subtitle: "System health at a glance.", maxContentWidth: 720) {
             VStack(spacing: 20) {
                 if rootModel.updateState == .ready {
                     UpdateBanner(version: rootModel.latestVersion) {
@@ -141,6 +170,7 @@ struct QuickActions: View {
                 selection = .optimize
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -168,7 +198,7 @@ struct HealthDashboard: View {
     let status: StatusSnapshot
 
     var body: some View {
-        HStack(alignment: .top, spacing: 20) {
+        HStack(alignment: .top, spacing: 16) {
             HealthScoreCard(status: status)
             MetricCards(status: status)
         }
@@ -394,7 +424,7 @@ struct AnalyzePane: View {
     @EnvironmentObject private var analyzeVM: AnalyzeViewModel
 
     var body: some View {
-        Workspace(title: "Analyze", subtitle: "Inspect disk usage before removing anything.") {
+        Workspace(title: "Analyze", subtitle: "Inspect disk usage before removing anything.", maxContentWidth: 860) {
             HStack {
                 Button {
                     Task { await analyzeVM.analyzeHome() }
@@ -565,7 +595,7 @@ struct SettingsPane: View {
     @EnvironmentObject private var rootModel: RootModel
 
     var body: some View {
-        Workspace(title: "Settings", subtitle: "Runtime, command line access, and local diagnostics.") {
+        Workspace(title: "Settings", subtitle: "Runtime, command line access, and local diagnostics.", maxContentWidth: 640) {
             VStack(alignment: .leading, spacing: 18) {
                 // Updates section
                 VStack(alignment: .leading, spacing: 10) {
@@ -688,22 +718,36 @@ struct SettingsPane: View {
 struct Workspace<Content: View>: View {
     let title: String
     let subtitle: String
+    var maxContentWidth: CGFloat? = nil
     @ViewBuilder let content: Content
+
+    init(title: String, subtitle: String, maxContentWidth: CGFloat? = nil, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.subtitle = subtitle
+        self.maxContentWidth = maxContentWidth
+        self.content = content()
+    }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 0) {
+                // Title area with clear separation from content
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .font(.system(size: 26, weight: .bold))
+                        .font(.system(size: 22, weight: .bold))
                     Text(subtitle)
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                 }
+                .padding(.bottom, 16)
+
+                Divider()
+                    .padding(.bottom, 20)
 
                 content
             }
             .padding(24)
+            .frame(maxWidth: maxContentWidth, alignment: .leading)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Color(nsColor: .windowBackgroundColor))
