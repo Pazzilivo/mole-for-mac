@@ -226,7 +226,6 @@ struct HealthDashboard: View {
                 MetricCards(status: status)
             }
         }
-        }
     }
 }
 
