@@ -169,11 +169,12 @@ struct ActionPill: View {
     var body: some View {
         Button(action: action) {
             Label(title, systemImage: icon)
-                .font(.system(size: 13, weight: .medium))
+                .font(.system(size: 12, weight: .medium))
         }
         .buttonStyle(.borderedProminent)
         .tint(isPrimary ? .accentColor : .clear)
         .foregroundStyle(isPrimary ? .white : .primary)
+        .controlSize(.small)
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }
@@ -185,8 +186,9 @@ struct HealthDashboard: View {
 
     var body: some View {
         ViewThatFits {
-            HStack(alignment: .top, spacing: 20) {
+            HStack(alignment: .top, spacing: 16) {
                 HealthScoreCard(status: status)
+                    .frame(maxWidth: 180)
                 MetricCards(status: status)
             }
             VStack(spacing: 16) {
@@ -209,7 +211,7 @@ struct HealthScoreCard: View {
     }
 
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 10) {
             ZStack {
                 Circle()
                     .stroke(Color(nsColor: .controlBackgroundColor), lineWidth: 6)
@@ -219,26 +221,28 @@ struct HealthScoreCard: View {
                     .rotationEffect(.degrees(-90))
                     .animation(.easeOut(duration: 0.8), value: status.healthScore)
                 Text("\(status.healthScore ?? 0)")
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .font(.system(size: 28, weight: .bold, design: .rounded))
                     .contentTransition(.numericText())
             }
-            .frame(width: 100, height: 100)
+            .frame(width: 88, height: 88)
 
-            VStack(spacing: 4) {
+            VStack(spacing: 3) {
                 Text(status.healthScoreMsg ?? "System Health")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                 Text(status.hardware?.model ?? status.host ?? "This Mac")
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
                 if let os = status.hardware?.osVersion {
                     Text(os)
-                        .font(.system(size: 11))
+                        .font(.system(size: 10))
                         .foregroundStyle(.tertiary)
                 }
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(20)
+        .padding(16)
         .background(compatibleCardFill, in: RoundedRectangle(cornerRadius: 10))
     }
 }
@@ -334,32 +338,42 @@ struct MetricCardRow: View {
     let progress: Double
     let color: Color
 
-    var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: icon)
-                .font(.system(size: 16))
-                .foregroundStyle(color)
-                .frame(width: 24)
+    /// Progress-based tint: base color → orange → red as usage climbs.
+    private var progressTint: Color {
+        if progress > 85 { return .red }
+        if progress > 60 { return .orange }
+        return color
+    }
 
-            VStack(alignment: .leading, spacing: 4) {
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundStyle(progressTint)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 3) {
                 HStack {
                     Text(title)
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.secondary)
                     Spacer()
                     Text(value)
                         .font(.system(size: 13, weight: .semibold, design: .rounded))
                         .monospacedDigit()
+                        .foregroundStyle(progressTint)
                 }
                 ProgressView(value: min(max(progress, 0), 100), total: 100)
-                    .tint(color)
+                    .tint(progressTint)
                     .animation(.easeOut(duration: 0.6), value: progress)
                 Text(detail)
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
+                    .lineLimit(1)
             }
         }
-        .padding(12)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 10)
         .background(compatibleCardFill, in: RoundedRectangle(cornerRadius: 8))
     }
 }
@@ -370,28 +384,46 @@ struct DiskList: View {
     let disks: [DiskInfo]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             SectionHeader(title: "Disks", icon: "internaldrive")
 
             ForEach(disks.prefix(5)) { disk in
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     Image(systemName: disk.external == true ? "externaldrive" : "internaldrive")
-                        .font(.system(size: 14))
+                        .font(.system(size: 13))
                         .foregroundStyle(.secondary)
-                        .frame(width: 20)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(disk.mount ?? disk.device ?? "Disk")
-                            .font(.system(size: 13, weight: .medium))
-                        Text(disk.external == true ? "External" : "Internal")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.tertiary)
+                        .frame(width: 18)
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text(disk.mount ?? disk.device ?? "Disk")
+                                .font(.system(size: 12, weight: .medium))
+                            Text(disk.external == true ? "External" : "Internal")
+                                .font(.system(size: 10))
+                                .foregroundStyle(.tertiary)
+                        }
+                        if let pct = disk.usedPercent {
+                            ProgressView(value: min(max(pct, 0), 100), total: 100)
+                                .tint(pct > 85 ? .red : pct > 60 ? .orange : .accentColor)
+                                .animation(.easeOut(duration: 0.4), value: pct)
+                        }
                     }
+
                     Spacer()
-                    Text("\(ByteFormat.string(disk.used)) / \(ByteFormat.string(disk.total))")
-                        .font(.system(size: 12, design: .monospaced))
-                        .foregroundStyle(.secondary)
+
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("\(ByteFormat.string(disk.used)) / \(ByteFormat.string(disk.total))")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                        if let pct = disk.usedPercent {
+                            Text("\(Int(pct.rounded()))%")
+                                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                                .foregroundStyle(pct > 85 ? .red : pct > 60 ? .orange : .secondary)
+                                .monospacedDigit()
+                        }
+                    }
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 10)
                 .padding(.vertical, 8)
                 .background(compatibleCardFill, in: RoundedRectangle(cornerRadius: 8))
             }
@@ -403,20 +435,21 @@ struct ProcessList: View {
     let processes: [TopProcess]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             SectionHeader(title: "Top Processes", icon: "chart.bar")
 
             ForEach(processes.prefix(6)) { process in
-                HStack(spacing: 12) {
+                HStack(spacing: 10) {
                     Text(process.name ?? process.command ?? "Process")
-                        .font(.system(size: 13))
+                        .font(.system(size: 12))
                         .lineLimit(1)
                     Spacer()
                     Text("\(format(process.cpu))%")
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundStyle(cpuColor(process.cpu))
+                        .monospacedDigit()
                 }
-                .padding(.horizontal, 12)
+                .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(compatibleCardFill, in: RoundedRectangle(cornerRadius: 8))
             }
