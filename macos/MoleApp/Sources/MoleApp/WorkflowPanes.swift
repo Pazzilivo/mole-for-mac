@@ -27,7 +27,7 @@ struct CleanPane: View {
     }
 
     var body: some View {
-        Workspace(title: "Clean", subtitle: "Scan and remove caches, logs, temp files, and app leftovers.") {
+        Workspace(title: "Clean", subtitle: "Scan and remove caches, logs, temp files, and app leftovers.", maxContentWidth: 720) {
             HStack {
                 Button {
                     Task { await cleanVM.runCleanScan() }
@@ -432,7 +432,7 @@ struct OptimizePane: View {
     )
 
     var body: some View {
-        Workspace(title: "Optimize", subtitle: "Review system refresh tasks before anything changes.") {
+        Workspace(title: "Optimize", subtitle: "Review system refresh tasks before anything changes.", maxContentWidth: 860) {
             HStack {
                 Button {
                     Task { await rootModel.refreshOptimizePlan() }
@@ -484,7 +484,7 @@ struct ArtifactsPane: View {
     @State private var selection: ArtifactMode = .projects
 
     var body: some View {
-        Workspace(title: "Artifacts", subtitle: "Clean project build output and installer files with table-based selection.") {
+        Workspace(title: "Artifacts", subtitle: "Clean project build output and installer files with table-based selection.", maxContentWidth: 720) {
             Picker("Mode", selection: $selection) {
                 ForEach(ArtifactMode.allCases) { mode in
                     Text(mode.title).tag(mode)
@@ -559,7 +559,7 @@ struct LogsPane: View {
     @State private var mode: LogMode = .operations
 
     var body: some View {
-        Workspace(title: "Logs", subtitle: "Review cleanup and deletion history from Mole's audit logs.") {
+        Workspace(title: "Logs", subtitle: "Review cleanup and deletion history from Mole's audit logs.", maxContentWidth: 860) {
             HStack {
                 Picker("Log", selection: $mode) {
                     ForEach(LogMode.allCases) { mode in
