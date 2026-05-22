@@ -38,14 +38,7 @@ struct CleanPane: View {
                 .disabled(cleanVM.cleanState == .loading)
 
                 if cleanVM.cleanState == .loading {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text(cleanVM.cleanProgress.isEmpty ? "Scanning cleanup candidates..." : cleanVM.cleanProgress)
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
+                    LoadingInline(message: cleanVM.cleanProgress.isEmpty ? "Scanning cleanup candidates..." : cleanVM.cleanProgress)
                 }
 
                 Spacer()
@@ -74,7 +67,7 @@ struct CleanPane: View {
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .frame(minHeight: 300)
+                .frame(minHeight: WorkflowTableConstants.minHeight)
             }
 
             if !cleanVM.cleanCategories.isEmpty {
@@ -290,11 +283,9 @@ private struct CleanCategoryDisclosure: View {
 
                 if category.targets.isEmpty {
                     ForEach(category.files.prefix(previewLimit), id: \.self) { file in
-                        Text(file)
+                        PathCell(path: file)
                             .font(.system(size: 10, design: .monospaced))
                             .foregroundStyle(.tertiary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
                     }
                 } else {
                     ForEach(category.targets.prefix(previewLimit)) { target in
@@ -348,12 +339,7 @@ private struct CleanTargetRow: View {
                         .foregroundStyle(.primary)
                 }
 
-                Text(target.displayPath)
-                    .font(.system(size: 10, design: .monospaced))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-                    .textSelection(.enabled)
+                PathCell(path: target.displayPath)
 
                 HStack(spacing: 8) {
                     Text(target.itemCount == 1 ? "1 item" : "\(target.itemCount) items")
@@ -442,8 +428,7 @@ struct OptimizePane: View {
                 .buttonStyle(.borderedProminent)
 
                 if rootModel.optimizeState == .loading {
-                    ProgressView()
-                        .controlSize(.small)
+                    LoadingInline(message: "Loading optimization plan...")
                 }
             }
 
@@ -461,19 +446,28 @@ struct OptimizePane: View {
 
                     Table(optimizePlan.optimizations) {
                         TableColumn("Task", value: \.name)
+                            .width(min: 120, ideal: 180)
                         TableColumn("Action", value: \.action)
+                            .width(min: 80, ideal: 120)
                         TableColumn("Safe") { task in
-                            Text(task.safe ? "Yes" : "Review")
+                            HStack(spacing: 4) {
+                                Circle()
+                                    .fill(task.safe ? Color.green : Color.orange)
+                                    .frame(width: 6, height: 6)
+                                Text(task.safe ? "Yes" : "Review")
+                                    .foregroundStyle(task.safe ? Color.secondary : Color.orange)
+                            }
                         }
+                        .width(min: 60, ideal: 70)
                         TableColumn("Description") { task in
                             Text(task.description)
-                                .lineLimit(1)
+                                .lineLimit(2)
                                 .truncationMode(.tail)
                         }
                     }
-                    .frame(minHeight: 380)
+                    .frame(minHeight: WorkflowTableConstants.minHeight)
                 }
-            } else {
+            } else if rootModel.optimizeState != .loading {
                 PlannedFlowPane(plan: plan, showHeader: false)
             }
         }
@@ -580,11 +574,15 @@ struct LogsPane: View {
                 ErrorBanner(message: message)
             }
 
-            switch mode {
-            case .operations:
-                OperationsLogTable(entries: rootModel.operationLog)
-            case .deletions:
-                DeletionsLogTable(entries: rootModel.deletionLog)
+            if rootModel.logsState == .loading {
+                LoadingView(title: "Loading logs...")
+            } else {
+                switch mode {
+                case .operations:
+                    OperationsLogTable(entries: rootModel.operationLog)
+                case .deletions:
+                    DeletionsLogTable(entries: rootModel.deletionLog)
+                }
             }
         }
         .onAppear {
@@ -614,23 +612,33 @@ struct OperationsLogTable: View {
 
     var body: some View {
         if entries.isEmpty {
-            EmptyState(title: "No operation log entries", detail: "Run a dry-run or cleanup command to create operation logs.")
+            EmptyState(
+                icon: "doc.text.magnifyingglass",
+                title: "No operation log entries",
+                detail: "Run a dry-run or cleanup command to create operation logs."
+            )
         } else {
             Table(entries) {
                 TableColumn("Time") { entry in
                     Text(entry.timestamp.isEmpty ? "-" : entry.timestamp)
                         .monospacedDigit()
                 }
+                .width(min: 120, ideal: 160)
                 TableColumn("Command", value: \.command)
+                    .width(min: 80, ideal: 120)
                 TableColumn("Action", value: \.action)
+                    .width(min: 60, ideal: 80)
                 TableColumn("Path") { entry in
-                    Text(entry.path)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    PathCell(path: entry.path)
                 }
-                TableColumn("Detail", value: \.detail)
+                .width(min: WorkflowTableConstants.pathMinWidth, ideal: WorkflowTableConstants.pathIdealWidth)
+                TableColumn("Detail") { entry in
+                    Text(entry.detail)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                }
             }
-            .frame(minHeight: 480)
+            .frame(minHeight: WorkflowTableConstants.minHeight)
         }
     }
 }
@@ -640,26 +648,35 @@ struct DeletionsLogTable: View {
 
     var body: some View {
         if entries.isEmpty {
-            EmptyState(title: "No deletion log entries", detail: "Trash-routed uninstall actions will appear here.")
+            EmptyState(
+                icon: "trash",
+                title: "No deletion log entries",
+                detail: "Trash-routed uninstall actions will appear here."
+            )
         } else {
             Table(entries) {
                 TableColumn("Time") { entry in
                     Text(entry.timestamp)
                         .monospacedDigit()
                 }
+                .width(min: 120, ideal: 160)
                 TableColumn("Mode", value: \.mode)
+                    .width(min: 60, ideal: 80)
                 TableColumn("Status", value: \.status)
+                    .width(min: 60, ideal: 80)
                 TableColumn("Size KB", value: \.sizeKB)
+                    .width(min: 60, ideal: 80)
                 TableColumn("Path") { entry in
-                    Text(entry.path)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
+                    PathCell(path: entry.path)
                 }
+                .width(min: WorkflowTableConstants.pathMinWidth, ideal: WorkflowTableConstants.pathIdealWidth)
             }
-            .frame(minHeight: 480)
+            .frame(minHeight: WorkflowTableConstants.minHeight)
         }
     }
 }
+
+// MARK: - Planned Feature Pane (Improved)
 
 struct PlannedFlowPane: View {
     let plan: PlannedScreen
@@ -678,39 +695,107 @@ struct PlannedFlowPane: View {
     }
 
     private var plannedContent: some View {
-        VStack(alignment: .leading, spacing: 24) {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Available now")
-                    .font(.headline)
-                BulletList(items: plan.availableNow)
+        VStack(alignment: .leading, spacing: 20) {
+            // Status badge — clearly communicates this is a planned feature
+            HStack(spacing: 10) {
+                Image(systemName: "clock.badge.clock")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Planned Feature")
+                        .font(.system(size: 14, weight: .semibold))
+                    Text("This workflow requires CLI API commands that are not yet available.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
             }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
 
-            Divider()
-
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Required API")
-                    .font(.headline)
-                ForEach(plan.commands) { command in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(command.command)
-                            .font(.system(.body, design: .monospaced))
-                            .textSelection(.enabled)
-                        Text(command.purpose)
-                            .font(.callout)
-                            .foregroundStyle(.secondary)
+            // Available now — what already works
+            if !plan.availableNow.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    SectionHeader(title: "Available Now", icon: "checkmark.circle")
+                    VStack(alignment: .leading, spacing: 6) {
+                        ForEach(plan.availableNow, id: \.self) { item in
+                            HStack(alignment: .top, spacing: 8) {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 10, weight: .bold))
+                                    .foregroundStyle(.green)
+                                    .frame(width: 16)
+                                Text(item)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
                     }
-                    .padding(.vertical, 4)
                 }
             }
 
             Divider()
 
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Safety")
-                    .font(.headline)
-                BulletList(items: plan.safetyNotes)
+            // Required API — structured list of CLI commands
+            VStack(alignment: .leading, spacing: 10) {
+                SectionHeader(title: "Required CLI API", icon: "terminal")
+                ForEach(plan.commands) { command in
+                    HStack(alignment: .top, spacing: 12) {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color.accentColor.opacity(0.12))
+                            .frame(width: 4, height: 32)
+                            .padding(.top, 2)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(command.command)
+                                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                .textSelection(.enabled)
+                            Text(command.purpose)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+
+            // Safety notes — rendered as individual bullet items, not a single joined string
+            if !plan.safetyNotes.isEmpty {
+                Divider()
+
+                SafetyNotesList(notes: plan.safetyNotes)
             }
         }
+    }
+}
+
+// MARK: - Safety Notes List
+
+/// Displays safety notes as individual bullet items with a consistent look.
+/// Replaces the old pattern of joining notes into a single string.
+struct SafetyNotesList: View {
+    let notes: [String]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            SectionHeader(title: "Safety", icon: "shield.checkered")
+
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(notes, id: \.self) { note in
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "checkmark.shield")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundStyle(.green)
+                            .frame(width: 16)
+                        Text(note)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .background(Color.green.opacity(0.04), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.green.opacity(0.10), lineWidth: 1))
     }
 }
 

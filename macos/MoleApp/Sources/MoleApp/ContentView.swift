@@ -553,16 +553,7 @@ struct AnalyzePane: View {
                 .disabled(analyzeVM.analyzeState == .loading)
 
                 if analyzeVM.analyzeState == .loading {
-                    HStack(spacing: 10) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text(analyzeVM.analyzeProgress.isEmpty ? "Starting analysis..." : analyzeVM.analyzeProgress)
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .animation(.easeInOut(duration: 0.3), value: analyzeVM.analyzeProgress)
-                    }
+                    LoadingInline(message: analyzeVM.analyzeProgress.isEmpty ? "Starting analysis..." : analyzeVM.analyzeProgress)
                 }
             }
 
@@ -584,14 +575,21 @@ struct AnalyzePane: View {
 
                     Table(analysis.entries.prefix(20).map { $0 }) {
                         TableColumn("Name", value: \.name)
+                            .width(min: 120, ideal: 200)
                         TableColumn("Size") { entry in
                             Text(ByteFormat.string(entry.size))
                         }
+                        .width(min: 80, ideal: 100)
                         TableColumn("Kind") { entry in
                             Text(entry.isDir ? "Folder" : "File")
                         }
+                        .width(min: 60, ideal: 70)
+                        TableColumn("Path") { entry in
+                            PathCell(path: entry.path)
+                        }
+                        .width(min: 120, ideal: 220)
                     }
-                    .frame(minHeight: 360)
+                    .frame(minHeight: WorkflowTableConstants.minHeight)
                 }
                 .transition(.opacity)
             } else if analyzeVM.analyzeState == .idle {
@@ -653,40 +651,60 @@ struct UninstallPane: View {
                 ErrorBanner(message: message)
             }
 
-            if uninstallVM.uninstallState == .loading {
-                HStack(spacing: 10) {
-                    ProgressView()
-                        .controlSize(.small)
-                    Text(uninstallVM.uninstallProgress.isEmpty ? "Uninstalling..." : uninstallVM.uninstallProgress)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
+            if let app = selectedApp {
+                SafetyNoteBanner(
+                    icon: "exclamationmark.triangle",
+                    color: .orange,
+                    message: "\(app.name) and its related data will be moved to Trash. You can restore from Finder if needed."
+                )
             }
 
-            Table(filteredApps, selection: Binding(
-                get: { selectedApp?.id },
-                set: { newID in
-                    if let newID {
-                        selectedApp = filteredApps.first(where: { $0.id == newID })
-                    } else {
-                        selectedApp = nil
+            if uninstallVM.uninstallState == .loading {
+                LoadingInline(message: uninstallVM.uninstallProgress.isEmpty ? "Uninstalling..." : uninstallVM.uninstallProgress)
+            }
+
+            Group {
+                if uninstallVM.uninstallState == .loading {
+                    // already shown above
+                } else if filteredApps.isEmpty {
+                    EmptyState(
+                        icon: "tray",
+                        title: query.isEmpty ? "No apps found" : "No matching apps",
+                        detail: query.isEmpty
+                            ? "Click the refresh button to rescan installed applications."
+                            : "Try a different search term."
+                    )
+                } else {
+                    Table(filteredApps, selection: Binding(
+                        get: { selectedApp?.id },
+                        set: { newID in
+                            if let newID {
+                                selectedApp = filteredApps.first(where: { $0.id == newID })
+                            } else {
+                                selectedApp = nil
+                            }
+                        }
+                    )) {
+                        TableColumn("Name", value: \.name)
+                            .width(min: 120, ideal: 180)
+                        TableColumn("Source") { app in
+                            Text(app.source ?? "App")
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
+                        .width(min: 60, ideal: 80)
+                        TableColumn("Size") { app in
+                            Text(app.size ?? "Unknown")
+                        }
+                        .width(min: 60, ideal: 80)
+                        TableColumn("Bundle ID") { app in
+                            PathCell(path: app.bundleID ?? "—")
+                        }
+                        .width(min: 100, ideal: 200)
                     }
-                }
-            )) {
-                TableColumn("Name", value: \.name)
-                TableColumn("Source") { app in
-                    Text(app.source ?? "App")
-                }
-                TableColumn("Size") { app in
-                    Text(app.size ?? "Unknown")
-                }
-                TableColumn("Bundle ID") { app in
-                    Text(app.bundleID ?? "Unknown")
-                        .foregroundStyle(.secondary)
+                    .frame(minHeight: WorkflowTableConstants.minHeight)
                 }
             }
-            .frame(minHeight: 440)
             .alert("Uninstall \(selectedApp?.name ?? "App")?", isPresented: $showConfirm) {
                 Button("Cancel", role: .cancel) {}
                 Button("Uninstall", role: .destructive) {
@@ -935,6 +953,28 @@ struct ErrorBanner: View {
     }
 }
 
+struct SafetyNoteBanner: View {
+    let icon: String
+    let color: Color
+    let message: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundStyle(color)
+            Text(message)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+        }
+        .padding(12)
+        .background(color.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(color.opacity(0.12), lineWidth: 1))
+    }
+}
+
 struct UpdateBanner: View {
     let version: String
     let onUpdate: () -> Void
@@ -1047,6 +1087,49 @@ struct EmptyState: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 48)
+    }
+}
+
+// MARK: - Workflow Shared Components
+
+/// Consistent table height constant used across all workflow panes.
+enum WorkflowTableConstants {
+    static let minHeight: CGFloat = 420
+    static let pathMinWidth: CGFloat = 120
+    static let pathIdealWidth: CGFloat = 220
+}
+
+/// Inline loading indicator for use in toolbar/action areas.
+/// Replaces ad-hoc `HStack { ProgressView() + Text(...) }` patterns.
+struct LoadingInline: View {
+    let message: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ProgressView()
+                .controlSize(.small)
+            Text(message)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+        }
+    }
+}
+
+/// Standardized path display cell for table columns.
+/// Ensures consistent monospaced font, middle truncation, and tooltip across all tables.
+struct PathCell: View {
+    let path: String
+
+    var body: some View {
+        Text(path)
+            .font(.system(size: 11, design: .monospaced))
+            .foregroundStyle(.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .help(path)
+            .textSelection(.enabled)
     }
 }
 
