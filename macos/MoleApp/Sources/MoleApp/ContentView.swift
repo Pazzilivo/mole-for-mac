@@ -81,7 +81,8 @@ struct OverviewPane: View {
 
     var body: some View {
         Workspace(title: "Overview", subtitle: "System health at a glance.") {
-            VStack(spacing: 20) {
+            // Banners – highest priority alerts
+            VStack(spacing: 16) {
                 if rootModel.updateState == .ready {
                     UpdateBanner(version: rootModel.latestVersion) {
                         Task { await rootModel.performUpdate() }
@@ -97,15 +98,21 @@ struct OverviewPane: View {
                 if case let .failed(message) = statusVM.statusState {
                     ErrorBanner(message: message)
                 }
-
-                QuickActions(selection: $selection)
             }
 
             if let status = statusVM.status {
                 VStack(spacing: 24) {
+                    // First screen core: health score + key metrics
                     HealthDashboard(status: status)
-                    DiskList(disks: status.disks ?? [])
-                    ProcessList(processes: status.topProcesses ?? [])
+
+                    // Secondary: quick action shortcuts
+                    QuickActions(selection: $selection)
+
+                    // Bottom grid: disks & processes side-by-side on wide screens
+                    OverviewBottomGrid(
+                        disks: status.disks ?? [],
+                        processes: status.topProcesses ?? []
+                    )
                 }
                 .transition(.opacity)
             } else if statusVM.statusState == .loading {
@@ -127,6 +134,15 @@ struct QuickActions: View {
     @Binding var selection: AppSection?
 
     var body: some View {
+        ViewThatFits {
+            actionRow
+            ScrollView(.horizontal, showsIndicators: false) {
+                actionRow
+            }
+        }
+    }
+
+    private var actionRow: some View {
         HStack(spacing: 10) {
             ActionPill(title: "Scan Cleanup", icon: "sparkles", isPrimary: true) {
                 selection = .clean
@@ -168,9 +184,15 @@ struct HealthDashboard: View {
     let status: StatusSnapshot
 
     var body: some View {
-        HStack(alignment: .top, spacing: 20) {
-            HealthScoreCard(status: status)
-            MetricCards(status: status)
+        ViewThatFits {
+            HStack(alignment: .top, spacing: 20) {
+                HealthScoreCard(status: status)
+                MetricCards(status: status)
+            }
+            VStack(spacing: 16) {
+                HealthScoreCard(status: status)
+                MetricCards(status: status)
+            }
         }
     }
 }
@@ -225,7 +247,44 @@ struct MetricCards: View {
     let status: StatusSnapshot
 
     var body: some View {
+        ViewThatFits {
+            gridLayout
+            listLayout
+        }
+    }
+
+    /// Two-column grid for wider widths
+    private var gridLayout: some View {
         VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                metricRow(for: .cpu)
+                metricRow(for: .memory)
+            }
+            if status.disks?.first != nil {
+                metricRow(for: .disk)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// Single column for narrow widths
+    private var listLayout: some View {
+        VStack(spacing: 10) {
+            metricRow(for: .cpu)
+            metricRow(for: .memory)
+            if status.disks?.first != nil {
+                metricRow(for: .disk)
+            }
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private enum MetricKind { case cpu, memory, disk }
+
+    @ViewBuilder
+    private func metricRow(for kind: MetricKind) -> some View {
+        switch kind {
+        case .cpu:
             MetricCardRow(
                 icon: "cpu",
                 title: "CPU",
@@ -234,6 +293,7 @@ struct MetricCards: View {
                 progress: status.cpu?.usage ?? 0,
                 color: .blue
             )
+        case .memory:
             MetricCardRow(
                 icon: "memorychip",
                 title: "Memory",
@@ -242,6 +302,7 @@ struct MetricCards: View {
                 progress: status.memory?.usedPercent ?? 0,
                 color: .orange
             )
+        case .disk:
             if let disk = status.disks?.first {
                 MetricCardRow(
                     icon: "internaldrive",
@@ -253,7 +314,6 @@ struct MetricCards: View {
                 )
             }
         }
-        .frame(maxWidth: .infinity)
     }
 
     private var loadText: String {
@@ -368,6 +428,30 @@ struct ProcessList: View {
         if v > 50 { return .red }
         if v > 25 { return .orange }
         return .secondary
+    }
+}
+
+// MARK: - Responsive Bottom Grid
+
+/// Places DiskList and ProcessList side-by-side on wide windows,
+/// and stacks them vertically when space is insufficient.
+struct OverviewBottomGrid: View {
+    let disks: [DiskInfo]
+    let processes: [TopProcess]
+
+    var body: some View {
+        ViewThatFits {
+            HStack(alignment: .top, spacing: 20) {
+                DiskList(disks: disks)
+                    .frame(minWidth: 240)
+                ProcessList(processes: processes)
+                    .frame(minWidth: 200)
+            }
+            VStack(spacing: 20) {
+                DiskList(disks: disks)
+                ProcessList(processes: processes)
+            }
+        }
     }
 }
 
