@@ -1,6 +1,6 @@
 import SwiftUI
 
-private let compatiblePaneFill = Color.secondary.opacity(0.08)
+// MoleFill.pane (from MoleUIStyle.swift) replaces the old private MoleFill.pane
 
 struct CleanPane: View {
     @EnvironmentObject private var cleanVM: CleanViewModel
@@ -242,7 +242,7 @@ private struct CleanRiskSummary: View {
             }
         }
         .padding(12)
-        .background(compatiblePaneFill, in: RoundedRectangle(cornerRadius: 8))
+        .background(MoleFill.pane, in: RoundedRectangle(cornerRadius: MoleRadius.card))
     }
 }
 
@@ -321,7 +321,7 @@ private struct CleanCategoryDisclosure: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 10)
-        .background(compatiblePaneFill, in: RoundedRectangle(cornerRadius: 8))
+        .background(MoleFill.pane, in: RoundedRectangle(cornerRadius: MoleRadius.card))
     }
 }
 

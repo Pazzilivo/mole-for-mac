@@ -1,6 +1,6 @@
 import SwiftUI
 
-private let compatibleCardFill = Color.secondary.opacity(0.08)
+// MoleFill.card (from MoleUIStyle.swift) replaces the old private MoleFill.card
 
 enum AppSection: String, CaseIterable, Identifiable {
     case overview = "Overview"
@@ -217,7 +217,7 @@ struct HealthScoreCard: View {
         }
         .frame(maxWidth: .infinity)
         .padding(20)
-        .background(compatibleCardFill, in: RoundedRectangle(cornerRadius: 10))
+        .background(MoleFill.card, in: RoundedRectangle(cornerRadius: MoleRadius.feature))
     }
 }
 
@@ -300,7 +300,7 @@ struct MetricCardRow: View {
             }
         }
         .padding(12)
-        .background(compatibleCardFill, in: RoundedRectangle(cornerRadius: 8))
+        .background(MoleFill.card, in: RoundedRectangle(cornerRadius: MoleRadius.card))
     }
 }
 
@@ -333,7 +333,7 @@ struct DiskList: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
-                .background(compatibleCardFill, in: RoundedRectangle(cornerRadius: 8))
+                .background(MoleFill.card, in: RoundedRectangle(cornerRadius: MoleRadius.card))
             }
         }
     }
@@ -358,7 +358,7 @@ struct ProcessList: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
-                .background(compatibleCardFill, in: RoundedRectangle(cornerRadius: 8))
+                .background(MoleFill.card, in: RoundedRectangle(cornerRadius: MoleRadius.card))
             }
         }
     }
@@ -728,7 +728,7 @@ struct MetricStrip: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(compatibleCardFill, in: RoundedRectangle(cornerRadius: 10))
+        .background(MoleFill.card, in: RoundedRectangle(cornerRadius: MoleRadius.feature))
     }
 }
 
@@ -791,8 +791,8 @@ struct UpdateBanner: View {
                 .controlSize(.small)
         }
         .padding(12)
-        .background(Color.blue.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
-        .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.blue.opacity(0.15), lineWidth: 1))
+        .moleGlassBackground(cornerRadius: MoleRadius.card)
+        .overlay(RoundedRectangle(cornerRadius: MoleRadius.card).stroke(Color.blue.opacity(0.15), lineWidth: 1))
     }
 }
 
