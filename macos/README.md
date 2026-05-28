@@ -55,14 +55,31 @@ Formal releases are produced by `.github/workflows/release.yml` when a `v*` or
 version from the tag, packages the native app, verifies the archive, and creates
 the macOS app GitHub Release.
 
-The app updater reads `https://api.github.com/repos/Pazzilivo/mole-for-mac/releases/latest`.
+The app updater reads the static manifest at:
+`https://github.com/Pazzilivo/mole-for-mac/releases/latest/download/latest.json`
+
+The manifest contains:
+
+```json
+{
+  "version": "1.38.1",
+  "tag": "v1.38.1",
+  "asset": "Mole-1.38.1.zip",
+  "sha256": "<hex digest>",
+  "notes": "<release notes>"
+}
+```
+
 The workflow publishes versioned app assets matching the existing
 updater-compatible names:
 
 ```text
 Mole-<version>.zip
 Mole-<tag>.zip
+latest.json
 ```
+
+The legacy `macos-app-release.yml` workflow is disabled to avoid conflicts.
 
 Local preflight:
 
@@ -91,3 +108,4 @@ Mole.app
 Future production work should add structured JSON plan/apply commands for
 cleanup, purge, installer cleanup, and uninstall previews before exposing those
 destructive actions in the GUI.
+

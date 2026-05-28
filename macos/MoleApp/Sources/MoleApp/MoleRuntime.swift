@@ -384,7 +384,6 @@ final class RootModel: ObservableObject {
             append("Log refresh failed", detail: error.localizedDescription, isError: true)
         }
     }
-
     func checkForUpdates() async {
         updateState = .loading
         do {
@@ -401,31 +400,24 @@ final class RootModel: ObservableObject {
                 return
             }
 
-            updateDownloadURL = release.assetURL ?? "https://github.com/Pazzilivo/mole-for-mac/releases/download/\(tagName)/Mole-\(tagName).zip"
+            updateDownloadURL = release.assetURL
             updateState = .ready
         } catch {
             updateState = .failed("Update check failed: \(error.localizedDescription)")
         }
     }
 
+
     private struct LatestRelease {
         let tagName: String
-        let assetURL: String?
+        let assetURL: String
+        let sha256: String?
     }
 
     private func fetchLatestRelease() async throws -> LatestRelease {
-        do {
-            return try await fetchLatestReleaseFromAPI()
-        } catch {
-            return try await fetchLatestReleaseFromRedirect()
-        }
-    }
-
-    private func fetchLatestReleaseFromAPI() async throws -> LatestRelease {
-        let apiURL = URL(string: "https://api.github.com/repos/Pazzilivo/mole-for-mac/releases/latest")!
-        var request = URLRequest(url: apiURL)
+        let manifestURL = URL(string: "https://github.com/Pazzilivo/mole-for-mac/releases/latest/download/latest.json")!
+        var request = URLRequest(url: manifestURL)
         request.setValue("Mole-macOS/\(currentVersion)", forHTTPHeaderField: "User-Agent")
-        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.cachePolicy = .reloadIgnoringLocalCacheData
 
         let (data, response) = try await URLSession.shared.data(for: request)
@@ -433,74 +425,24 @@ final class RootModel: ObservableObject {
             throw NSError(
                 domain: "Update",
                 code: http.statusCode,
-                userInfo: [NSLocalizedDescriptionKey: apiErrorMessage(from: data) ?? "GitHub API returned HTTP \(http.statusCode)"]
+                userInfo: [NSLocalizedDescriptionKey: "Manifest download returned HTTP \(http.statusCode)"]
             )
         }
 
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let tagName = json["tag_name"] as? String,
-              !tagName.isEmpty else {
-            throw NSError(domain: "Update", code: -2, userInfo: [NSLocalizedDescriptionKey: "GitHub API response did not include a release tag"])
+              let tag = json["tag"] as? String,
+              !tag.isEmpty,
+              let asset = json["asset"] as? String,
+              !asset.isEmpty else {
+            throw NSError(domain: "Update", code: -2, userInfo: [NSLocalizedDescriptionKey: "latest.json missing required fields (tag, asset)"])
         }
 
-        let assetURL = preferredAssetURL(from: json["assets"] as? [[String: Any]], tagName: tagName)
-        return LatestRelease(tagName: tagName, assetURL: assetURL)
+        let downloadBase = "https://github.com/Pazzilivo/mole-for-mac/releases/download/\(tag)"
+        let assetURL = "\(downloadBase)/\(asset)"
+        let sha256 = json["sha256"] as? String
+
+        return LatestRelease(tagName: tag, assetURL: assetURL, sha256: sha256)
     }
-
-    private func fetchLatestReleaseFromRedirect() async throws -> LatestRelease {
-        let latestURL = URL(string: "https://github.com/Pazzilivo/mole-for-mac/releases/latest")!
-        var request = URLRequest(url: latestURL)
-        request.httpMethod = "HEAD"
-        request.setValue("Mole-macOS/\(currentVersion)", forHTTPHeaderField: "User-Agent")
-        request.cachePolicy = .reloadIgnoringLocalCacheData
-
-        let (_, response) = try await URLSession.shared.data(for: request)
-        guard let finalURL = response.url,
-              finalURL.path.contains("/releases/tag/") else {
-            throw NSError(domain: "Update", code: -3, userInfo: [NSLocalizedDescriptionKey: "Could not resolve latest release redirect"])
-        }
-
-        let tagName = finalURL.lastPathComponent
-        guard !tagName.isEmpty else {
-            throw NSError(domain: "Update", code: -4, userInfo: [NSLocalizedDescriptionKey: "Latest release redirect did not include a tag"])
-        }
-
-        return LatestRelease(
-            tagName: tagName,
-            assetURL: "https://github.com/Pazzilivo/mole-for-mac/releases/download/\(tagName)/Mole-\(tagName).zip"
-        )
-    }
-
-    private func preferredAssetURL(from assets: [[String: Any]]?, tagName: String) -> String? {
-        let version = tagName.hasPrefix("v") ? String(tagName.dropFirst()) : tagName
-        let preferredNames = [
-            "Mole-\(tagName).zip",
-            "Mole-\(version).zip"
-        ]
-
-        for name in preferredNames {
-            if let asset = assets?.first(where: { ($0["name"] as? String) == name }),
-               let url = asset["browser_download_url"] as? String {
-                return url
-            }
-        }
-
-        return assets?
-            .first(where: { asset in
-                guard let name = asset["name"] as? String else { return false }
-                return name.hasPrefix("Mole-") && name.hasSuffix(".zip")
-            })?["browser_download_url"] as? String
-    }
-
-    private func apiErrorMessage(from data: Data) -> String? {
-        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let message = json["message"] as? String,
-              !message.isEmpty else {
-            return nil
-        }
-        return message
-    }
-
     func performUpdate() async {
         guard !updateDownloadURL.isEmpty else { return }
         updateState = .loading

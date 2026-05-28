@@ -48,21 +48,6 @@ jobs:
           test -s dist/Mole.app.zip.sha256
           unzip -t dist/Mole.app.zip
 
-      - name: Prepare release assets
-        run: |
-          TAG="${{ steps.app_version.outputs.tag }}"
-          VERSION="${{ steps.app_version.outputs.version }}"
-          mkdir -p dist/release
-          cp dist/Mole.app.zip "dist/release/Mole-${VERSION}.zip"
-          cp dist/Mole.app.zip "dist/release/Mole-${TAG}.zip"
-          (
-            cd dist/release
-            shasum -a 256 "Mole-${VERSION}.zip" > "Mole-${VERSION}.zip.sha256"
-            shasum -a 256 "Mole-${TAG}.zip" > "Mole-${TAG}.zip.sha256"
-            shasum -a 256 "Mole-${VERSION}.zip" "Mole-${TAG}.zip" > SHA256SUMS
-          )
-          ls -lh dist/release
-
       - name: Verify bundled version
         run: |
           VERSION="${{ steps.app_version.outputs.version }}"
@@ -94,6 +79,35 @@ jobs:
           echo "Automated macOS app build by GitHub Actions" >> "$GITHUB_OUTPUT"
           echo "${EOF_MARKER}" >> "$GITHUB_OUTPUT"
 
+      - name: Prepare release assets
+        run: |
+          TAG="${{ steps.app_version.outputs.tag }}"
+          VERSION="${{ steps.app_version.outputs.version }}"
+          mkdir -p dist/release
+          cp dist/Mole.app.zip "dist/release/Mole-${VERSION}.zip"
+          cp dist/Mole.app.zip "dist/release/Mole-${TAG}.zip"
+          (
+            cd dist/release
+            shasum -a 256 "Mole-${VERSION}.zip" > "Mole-${VERSION}.zip.sha256"
+            shasum -a 256 "Mole-${TAG}.zip" > "Mole-${TAG}.zip.sha256"
+            shasum -a 256 "Mole-${VERSION}.zip" "Mole-${TAG}.zip" > SHA256SUMS
+          )
+
+          # Generate latest.json static manifest for GUI auto-update
+          SHA256=$(cut -d' ' -f1 "dist/release/Mole-${VERSION}.zip.sha256")
+          NOTES="${{ steps.notes.outputs.body }}"
+          cat > dist/release/latest.json <<MANIFEST_EOF
+          {
+            "version": "${VERSION}",
+            "tag": "${TAG}",
+            "asset": "Mole-${VERSION}.zip",
+            "sha256": "${SHA256}",
+            "notes": $(printf '%s' "$NOTES" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))')
+          }
+          MANIFEST_EOF
+          python3 -m json.tool dist/release/latest.json > dist/release/latest.json.tmp && mv dist/release/latest.json.tmp dist/release/latest.json
+          ls -lh dist/release
+
       - name: Create Release
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v2
         with:
@@ -103,3 +117,4 @@ jobs:
           files: dist/release/*
           draft: false
           prerelease: false
+

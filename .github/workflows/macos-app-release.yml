@@ -1,9 +1,11 @@
-name: macOS App Release
+name: macOS App Release (legacy)
 
+# This workflow is superseded by release.yml which also generates latest.json.
+# Disabled: no tags match the trigger pattern below.
 on:
   push:
     tags:
-      - 'v*'
+      - 'never-match-legacy-macos-app-release-*'
 
 permissions:
   contents: write
@@ -41,3 +43,4 @@ jobs:
           files: |
             build/macos/Mole-*.zip
             build/macos/SHA256SUMS
+
