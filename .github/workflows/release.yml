@@ -80,6 +80,8 @@ jobs:
           echo "${EOF_MARKER}" >> "$GITHUB_OUTPUT"
 
       - name: Prepare release assets
+        env:
+          RELEASE_NOTES: ${{ steps.notes.outputs.body }}
         run: |
           TAG="${{ steps.app_version.outputs.tag }}"
           VERSION="${{ steps.app_version.outputs.version }}"
@@ -95,7 +97,7 @@ jobs:
 
           # Generate latest.json static manifest for GUI auto-update
           SHA256=$(cut -d' ' -f1 "dist/release/Mole-${VERSION}.zip.sha256")
-          NOTES="${{ steps.notes.outputs.body }}"
+          NOTES="$RELEASE_NOTES"
           cat > dist/release/latest.json <<MANIFEST_EOF
           {
             "version": "${VERSION}",
